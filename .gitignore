@@ -1,0 +1,12 @@
+node_modules/
+build/
+.svelte-kit/
+src-tauri/target/
+src-tauri/gen/schemas/
+*.timestamp-*
+.DS_Store
+.env
+.env.*
+!.env.example
+.claude/
+docs/
