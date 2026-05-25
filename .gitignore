@@ -10,3 +10,4 @@ src-tauri/gen/schemas/
 !.env.example
 .claude/
 docs/
+.CLAUDE.md
