@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use std::thread;
 use notify::{Watcher, RecommendedWatcher, RecursiveMode, Event, Config};
-use tauri::{Manager, Emitter, State};
+use tauri::{Manager, Emitter, State, WebviewUrl, WebviewWindowBuilder};
 use std::process::Command as StdCommand;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -40,6 +40,7 @@ pub struct SearchResult {
 pub struct AppState {
     pub pending_file_path: Mutex<Option<String>>,
     pub watcher_stop_signal: Arc<Mutex<Option<Arc<AtomicBool>>>>,
+    pub window_counter: AtomicU64,
 }
 
 impl Default for AppState {
@@ -47,6 +48,7 @@ impl Default for AppState {
         Self {
             pending_file_path: Mutex::new(None),
             watcher_stop_signal: Arc::new(Mutex::new(None)),
+            window_counter: AtomicU64::new(0),
         }
     }
 }
@@ -157,43 +159,6 @@ fn get_file_path(path: String) -> Result<String, String> {
     match path_buf.canonicalize() {
         Ok(p) => Ok(p.to_string_lossy().to_string()),
         Err(e) => Err(format!("Failed to get path: {}", e))
-    }
-}
-
-#[tauri::command]
-fn get_app_dir() -> Result<String, String> {
-    // In dev mode, exe is in src-tauri/target/debug/
-    // We need to find the project root (where sample/ lives)
-    match std::env::current_exe() {
-        Ok(exe_path) => {
-            if let Some(exe_dir) = exe_path.parent() {
-                // Check if sample/ exists relative to exe dir (production)
-                let sample_at_exe = exe_dir.join("sample");
-                if sample_at_exe.is_dir() {
-                    return Ok(exe_dir.to_string_lossy().to_string());
-                }
-
-                // Dev mode: exe is in src-tauri/target/debug/
-                // Walk up to find the directory containing sample/
-                let mut dir = exe_dir.to_path_buf();
-                for _ in 0..5 {
-                    if dir.join("sample").is_dir() {
-                        return Ok(dir.to_string_lossy().to_string());
-                    }
-                    if let Some(parent) = dir.parent() {
-                        dir = parent.to_path_buf();
-                    } else {
-                        break;
-                    }
-                }
-
-                // Fallback: return exe dir
-                Ok(exe_dir.to_string_lossy().to_string())
-            } else {
-                Err("Cannot determine app directory".to_string())
-            }
-        }
-        Err(e) => Err(format!("Failed to get app directory: {}", e))
     }
 }
 
@@ -390,6 +355,35 @@ fn open_in_editor(path: String, editor: String) -> Result<(), String> {
     Err(format!("Editor '{}' not found. Try using the full path in Settings.", editor))
 }
 
+fn create_file_window(app: &tauri::AppHandle, file_path: &str) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let counter = state.window_counter.fetch_add(1, Ordering::Relaxed);
+    let label = format!("file-{}", counter);
+    let encoded = urlencoding::encode(file_path);
+    let url = format!("/?file={}", encoded);
+
+    let file_name = std::path::Path::new(file_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Untitled".to_string());
+
+    WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+        .title(format!("Feathermark — {}", file_name))
+        .inner_size(1200.0, 800.0)
+        .min_inner_size(800.0, 600.0)
+        .center()
+        .build()
+        .map_err(|e| format!("Failed to create window: {}", e))?;
+
+    info!("Created new window '{}' for file: {}", label, file_path);
+    Ok(())
+}
+
+#[tauri::command]
+fn open_in_new_window(app: tauri::AppHandle, file_path: String) -> Result<(), String> {
+    create_file_window(&app, &file_path)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -398,10 +392,19 @@ pub fn run() {
 
             if argv.len() > 1 {
                 let file_path = &argv[1];
-                info!("Opening file from single instance: {}", file_path);
+                info!("Opening file in new window: {}", file_path);
 
+                if let Err(e) = create_file_window(app, file_path) {
+                    error!("Failed to create new window: {}", e);
+                    // Fallback: emit to main window
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("open-file", file_path.clone());
+                    }
+                }
+            } else {
+                // No file — focus existing main window
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.emit("open-file", file_path.clone());
+                    let _ = window.set_focus();
                 }
             }
         }))
@@ -425,7 +428,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![read_file, read_directory, get_file_path, get_pending_file_path, watch_file, list_markdown_files, search_files, get_app_dir, open_in_editor])
+        .invoke_handler(tauri::generate_handler![read_file, read_directory, get_file_path, get_pending_file_path, watch_file, list_markdown_files, search_files, open_in_editor, open_in_new_window])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

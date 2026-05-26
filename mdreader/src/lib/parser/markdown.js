@@ -370,6 +370,53 @@ export function parseFrontmatter(content) {
 }
 
 /**
+ * Protect math expressions from markdown-it.
+ * markdown-it treats \{ \} etc. as CommonMark backslash escapes and strips
+ * the backslash, which breaks LaTeX like \left\{ ... \right\}.
+ * We replace $...$ / $$...$$ with placeholders before md.render(), then
+ * restore them afterwards.
+ * @param {string} content
+ * @returns {{ text: string, mathBlocks: string[] }}
+ */
+function shieldMath(content) {
+  /** @type {string[]} */
+  const mathBlocks = [];
+  const BLOCK_MATH = /\$\$([\s\S]*?)\$\$/g;
+  const INLINE_MATH = /(?<!\$)\$(?!\$)(.+?)\$(?!\$)/g;
+
+  // First shield block math ($$...$$) — order matters
+  // NOTE: Use \x01 (SOH) instead of \x00 (NUL) because markdown-it replaces
+  // NUL bytes with U+FFFD per CommonMark spec, breaking unshieldMath().
+  let shielded = content.replace(BLOCK_MATH, (match) => {
+    const idx = mathBlocks.length;
+    mathBlocks.push(match);
+    return `\x01MATH${idx}\x01`;
+  });
+
+  // Then shield inline math ($...$)
+  shielded = shielded.replace(INLINE_MATH, (match) => {
+    const idx = mathBlocks.length;
+    mathBlocks.push(match);
+    return `\x01MATH${idx}\x01`;
+  });
+
+  return { text: shielded, mathBlocks };
+}
+
+/**
+ * Restore shielded math expressions after markdown-it rendering.
+ * The placeholders survive md.render() because they contain no markdown syntax.
+ * @param {string} html
+ * @param {string[]} mathBlocks
+ * @returns {string}
+ */
+function unshieldMath(html, mathBlocks) {
+  return html.replace(/\x01MATH(\d+)\x01/g, (_, idx) => {
+    return mathBlocks[Number(idx)];
+  });
+}
+
+/**
  * @param {string} content
  * @returns {string}
  */
@@ -379,7 +426,12 @@ export function renderMarkdown(content) {
   processed = preprocessWikilinks(processed);
   processed = preprocessFootnotes(processed);
   processed = preprocessTags(processed);
-  return md.render(processed);
+
+  // Shield math from markdown-it's backslash-escape processing
+  const { text: shielded, mathBlocks } = shieldMath(processed);
+  let html = md.render(shielded);
+  html = unshieldMath(html, mathBlocks);
+  return html;
 }
 
 /**

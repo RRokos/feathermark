@@ -62,6 +62,11 @@
 
 ⚙️ → 勾选 **Fit diagram to text width** → Save
 
+### 多窗口
+
+- 双击 `.md` 文件会自动在新窗口打开（已有窗口不受影响）
+- 在左侧目录树右键文件 → **Open in new window**
+
 ### 双链跳转
 
 - 点击 `[[链接名]]` 自动跳转到对应文件
@@ -102,7 +107,7 @@
 需要：Node.js 18+、Rust 1.70+、Windows 10/11
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/feathermark.git
+git clone https://github.com/RRokos/feathermark.git
 cd feathermark/mdreader
 npm install
 npm run tauri dev      # 开发模式

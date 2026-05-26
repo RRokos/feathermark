@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { readDirectory, getParentDirectory, openInEditor, searchFiles } from '$lib/services/file.js';
+  import { readDirectory, getParentDirectory, openInEditor, searchFiles, openInNewWindow } from '$lib/services/file.js';
   import { createEventDispatcher } from 'svelte';
 
   const dispatch = createEventDispatcher<{ navigate: { path: string } }>();
@@ -123,6 +123,17 @@
   function contextMenuOpenFile(): void {
     if (contextMenu.entry) {
       dispatch('navigate', { path: contextMenu.entry.path });
+    }
+    closeContextMenu();
+  }
+
+  async function contextMenuOpenInNewWindow(): Promise<void> {
+    if (contextMenu.entry) {
+      try {
+        await openInNewWindow(contextMenu.entry.path);
+      } catch (err) {
+        console.error('Failed to open in new window:', err);
+      }
     }
     closeContextMenu();
   }
@@ -338,6 +349,9 @@
   >
     <button class="context-menu-item" on:click={contextMenuOpenFile}>
       📄 Open
+    </button>
+    <button class="context-menu-item" on:click={contextMenuOpenInNewWindow}>
+      🪟 Open in new window
     </button>
     <button class="context-menu-item" on:click={contextMenuOpenInEditor}>
       ✏️ Open in editor

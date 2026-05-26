@@ -118,6 +118,20 @@ export async function searchFiles(root, query) {
 }
 
 /**
+ * Open a file in a new window
+ * @param {string} filePath
+ * @returns {Promise<void>}
+ */
+export async function openInNewWindow(filePath) {
+  try {
+    await invoke('open_in_new_window', { filePath });
+  } catch (/** @type {any} */ error) {
+    console.error('Failed to open in new window:', error);
+    throw error;
+  }
+}
+
+/**
  * List all markdown files recursively in a directory
  * @param {string} root
  * @returns {Promise<Array<{name: string, path: string}>>}

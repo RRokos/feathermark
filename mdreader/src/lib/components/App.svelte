@@ -20,7 +20,6 @@
   let errorMessage: string = '';
   let sidebarRoot: string = '';
   let fileModifiedExternally: boolean = false;
-  let appDir: string = '';
   let sidebarRef: any = null;
   let showSettings: boolean = false;
   let contentEl: HTMLDivElement;
@@ -55,23 +54,9 @@
     }
   }
 
-  async function loadSample(sampleName: string): Promise<void> {
-    await loadFile(`sample/${sampleName}`);
-  }
-
-  function loadSampleVault(): void {
-    if (appDir) {
-      sidebarRoot = '';
-      setTimeout(() => { sidebarRoot = appDir + '/sample'; }, 50);
-    }
-  }
-
   function resolvePath(filePath: string): string {
     if (filePath.includes(':') || filePath.startsWith('/')) {
       return filePath;
-    }
-    if (filePath.startsWith('sample/') && appDir) {
-      return appDir + '/' + filePath;
     }
     return filePath;
   }
@@ -280,15 +265,24 @@
   onMount((): (() => void) => {
     let cleanups: Array<() => void> = [];
 
-    invoke<string>('get_app_dir').then((dir) => {
-      appDir = dir;
-      if (!sidebarRoot) {
-        sidebarRoot = appDir + '/sample';
-      }
-      indexVaultFiles(sidebarRoot);
-    }).catch((err) => {
-      console.warn('Failed to get app dir:', err);
-    });
+    // Check if this window was opened with a ?file= query parameter (multi-window)
+    const urlParams = new URLSearchParams(window.location.search);
+    const fileFromQuery = urlParams.get('file');
+
+    if (fileFromQuery) {
+      // New window opened for a specific file
+      loadFile(decodeURIComponent(fileFromQuery));
+    } else {
+      // Main window — check for cold-start pending file
+      invoke<string | null>('get_pending_file_path').then((pendingPath: string | null) => {
+        if (pendingPath) {
+          console.log('Loading pending file from cold start:', pendingPath);
+          loadFile(pendingPath);
+        }
+      }).catch(() => {
+        console.log('No pending file path');
+      });
+    }
 
     Promise.all([
       listen<string>('open-file', async (event) => {
@@ -301,14 +295,6 @@
         if (changedPath === $documentState.filePath) {
           fileModifiedExternally = true;
         }
-      }),
-      invoke<string | null>('get_pending_file_path').then((pendingPath: string | null) => {
-        if (pendingPath) {
-          console.log('Loading pending file from cold start:', pendingPath);
-          loadFile(pendingPath);
-        }
-      }).catch(() => {
-        console.log('No pending file path');
       })
     ]).then(([unlistenOpenFile, unlistenFileChanged]) => {
       cleanups.push(unlistenOpenFile);
@@ -416,9 +402,6 @@
             <div class="welcome-actions">
               <button class="welcome-btn primary" on:click={selectVaultFolder}>
                 📂 Open Folder
-              </button>
-              <button class="welcome-btn" on:click={loadSampleVault}>
-                📋 Sample Files
               </button>
             </div>
 

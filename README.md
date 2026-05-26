@@ -16,6 +16,7 @@
 - 🔍 **Full-text search** — Search across all files in a vault (Ctrl+Shift+F)
 - 📝 **External editor** — Open files in VS Code, Notepad++, or any editor with one click
 - 🗂️ **Optional tabs** — Browse multiple files in browser-style tabs
+- 🪟 **Multi-window** — Double-click a `.md` file to open it in a new window; right-click to "Open in new window"
 - 🌙 **Dark mode** — Toggle with one click
 - ⚡ **Lightweight** — Tauri 2 binary ~5MB, instant startup
 - 🔗 **Vault-wide wikilink resolution** — Click `[[any page]]` and it finds the file anywhere in your vault
@@ -23,16 +24,19 @@
 
 ## 📦 Install
 
-Download the latest `.exe` from [Releases](../../releases) and run it directly — no installation needed.
+Download from [Releases](../../releases):
 
-You can also download the NSIS installer for file association (double-click `.md` to open).
+| File | Description |
+|------|-------------|
+| `Feathermark.exe` | Portable — run directly, no install needed |
+| `Feathermark_x64-setup.exe` | Installer — supports double-click `.md` file association |
 
 ## 🛠️ Build from Source
 
 **Prerequisites:** Node.js 18+, Rust 1.70+, Windows 10/11
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/feathermark.git
+git clone https://github.com/RRokos/feathermark.git
 cd feathermark/mdreader
 npm install
 npm run tauri build
