@@ -10,17 +10,19 @@
 
 ## ✨ Features
 
-- 📖 **Obsidian syntax support** — Callouts (28 types), `[[wikilinks]]`, `![[embeds]]`, footnotes, tags, task lists
+- 📖 **Obsidian syntax support** — Callouts (28 types), `[[wikilinks]]`, `[[#Heading]]` self-links, `![[embeds]]`, footnotes, tags, task lists
 - 📐 **KaTeX math** — Inline `$...$` and block `$$...$$` formulas
-- 📊 **Mermaid diagrams** — Flowcharts, sequence diagrams, and 14+ diagram types
+- 📊 **Mermaid diagrams** — Flowcharts, sequence diagrams, and 14+ diagram types (heuristic detection only on untagged code blocks)
 - 🔍 **Full-text search** — Search across all files in a vault (Ctrl+Shift+F)
 - 📝 **External editor** — Open files in VS Code, Notepad++, or any editor with one click
 - 🗂️ **Optional tabs** — Browse multiple files in browser-style tabs
 - 🪟 **Multi-window** — Double-click a `.md` file to open it in a new window; right-click to "Open in new window"
+- 📁 **Show in folder** — Right-click a file in the sidebar to reveal it in Windows Explorer
 - 🌙 **Dark mode** — Toggle with one click
 - ⚡ **Lightweight** — Tauri 2 binary ~5MB, instant startup
-- 🔗 **Vault-wide wikilink resolution** — Click `[[any page]]` and it finds the file anywhere in your vault
+- 🔗 **Vault-wide wikilink resolution** — Click `[[any page]]` and it finds the file anywhere in your vault (supports `.md` and `.markdown`)
 - 🔎 **In-document search** — Ctrl+F to find text within the current document
+- 🔒 **Secure** — DOMPurify HTML sanitization, KaTeX trust disabled, CSP enforced, invoke timeout protection
 
 ## 📦 Install
 
