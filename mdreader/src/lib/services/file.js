@@ -1,19 +1,34 @@
 import { invoke } from '@tauri-apps/api/core';
 
 const EDITOR_KEY = 'mdreader_editor';
+const INVOKE_TIMEOUT_MS = 10000;
+
+/**
+ * Wrap invoke() with a timeout to prevent indefinite hangs.
+ * @param {string} cmd
+ * @param {Record<string, any>} [args]
+ * @param {number} [timeoutMs]
+ * @returns {Promise<any>}
+ */
+function invokeWithTimeout(cmd, args = {}, timeoutMs = INVOKE_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`IPC timeout: ${cmd} did not respond within ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    invoke(cmd, args).then(
+      (result) => { clearTimeout(timer); resolve(result); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
 
 /**
  * @param {string} filePath
  * @returns {Promise<{content: string, path: string}>}
  */
 export async function openFile(filePath) {
-  try {
-    const result = await invoke('read_file', { path: filePath });
-    return result;
-  } catch (/** @type {any} */ error) {
-    console.error('Failed to open file:', error);
-    throw error;
-  }
+  return await invokeWithTimeout('read_file', { path: filePath });
 }
 
 /**
@@ -21,13 +36,8 @@ export async function openFile(filePath) {
  * @returns {Promise<{path: string}>}
  */
 export async function getFileInfo(filePath) {
-  try {
-    const path = await invoke('get_file_path', { path: filePath });
-    return { path };
-  } catch (/** @type {any} */ error) {
-    console.error('Failed to get file info:', error);
-    throw error;
-  }
+  const path = await invokeWithTimeout('get_file_path', { path: filePath });
+  return { path };
 }
 
 /**
@@ -54,13 +64,7 @@ export function getDirectory(filePath) {
  * @returns {Promise<Array<{name: string, path: string, is_dir: boolean}>>}
  */
 export async function readDirectory(path) {
-  try {
-    const entries = await invoke('read_directory', { path });
-    return entries;
-  } catch (/** @type {any} */ error) {
-    console.error('Failed to read directory:', error);
-    throw error;
-  }
+  return await invokeWithTimeout('read_directory', { path });
 }
 
 /**
@@ -80,26 +84,20 @@ export function getParentDirectory(path) {
  */
 export async function watchFile(_window, filePath) {
   try {
-    await invoke('watch_file', { path: filePath });
+    await invokeWithTimeout('watch_file', { path: filePath });
   } catch (/** @type {any} */ error) {
-    console.error('Failed to watch file:', error);
+    console.warn('Failed to watch file:', error);
   }
 }
 
 /**
  * Open a file in an external editor.
- * Uses the user-configured editor from Settings, or system default if not configured.
  * @param {string} filePath
  * @returns {Promise<void>}
  */
 export async function openInEditor(filePath) {
   const saved = localStorage.getItem(EDITOR_KEY) || '';
-  try {
-    await invoke('open_in_editor', { path: filePath, editor: saved });
-  } catch (/** @type {any} */ error) {
-    console.error('Failed to open in editor:', error);
-    throw error;
-  }
+  await invokeWithTimeout('open_in_editor', { path: filePath, editor: saved });
 }
 
 /**
@@ -109,12 +107,7 @@ export async function openInEditor(filePath) {
  * @returns {Promise<Array<{path: string, file_name: string, line_number: number, line_text: string}>>}
  */
 export async function searchFiles(root, query) {
-  try {
-    return await invoke('search_files', { root, query });
-  } catch (/** @type {any} */ error) {
-    console.error('Failed to search files:', error);
-    throw error;
-  }
+  return await invokeWithTimeout('search_files', { root, query });
 }
 
 /**
@@ -123,12 +116,16 @@ export async function searchFiles(root, query) {
  * @returns {Promise<void>}
  */
 export async function openInNewWindow(filePath) {
-  try {
-    await invoke('open_in_new_window', { filePath });
-  } catch (/** @type {any} */ error) {
-    console.error('Failed to open in new window:', error);
-    throw error;
-  }
+  await invokeWithTimeout('open_in_new_window', { filePath });
+}
+
+/**
+ * Show a file in the system file explorer (Windows Explorer)
+ * @param {string} filePath
+ * @returns {Promise<void>}
+ */
+export async function showInFolder(filePath) {
+  await invokeWithTimeout('show_in_folder', { path: filePath });
 }
 
 /**
@@ -137,10 +134,5 @@ export async function openInNewWindow(filePath) {
  * @returns {Promise<Array<{name: string, path: string}>>}
  */
 export async function listMarkdownFiles(root) {
-  try {
-    return await invoke('list_markdown_files', { root });
-  } catch (/** @type {any} */ error) {
-    console.error('Failed to list markdown files:', error);
-    throw error;
-  }
+  return await invokeWithTimeout('list_markdown_files', { root });
 }

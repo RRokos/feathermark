@@ -1,6 +1,13 @@
 import 'katex/dist/katex.min.css';
 import katex from 'katex';
 
+/** Custom macros for commands not built into KaTeX */
+const KATEX_MACROS = {
+  '\\arccot': '\\operatorname{arccot}',
+  '\\arcsec': '\\operatorname{arcsec}',
+  '\\arccsc': '\\operatorname{arccsc}',
+};
+
 /**
  * @param {string} latex
  * @param {object} [options]
@@ -12,7 +19,8 @@ export function renderKatex(latex, options = {}) {
     throwOnError: false,
     errorColor: '#cc0000',
     strict: false,
-    trust: true,
+    trust: false,
+    macros: KATEX_MACROS,
     ...options
   };
 
@@ -59,7 +67,6 @@ export function renderMathInDOM(container) {
     if (!text.includes('$')) continue;
 
     // Match block math $$...$$ and inline math $...$
-    // Inline: allow any chars except newline between single $, non-greedy
     const combinedRegex = /\$\$([\s\S]*?)\$\$|(?<!\$)\$(?!\$)(.+?)\$(?!\$)/g;
     let lastIndex = 0;
     let match;
@@ -77,8 +84,6 @@ export function renderMathInDOM(container) {
       const isBlock = match[1] !== undefined;
       let latex = (isBlock ? match[1] : match[2]).trim();
 
-      // In LaTeX, bare % starts a comment that swallows the rest of the line.
-      // Obsidian/KaTeX users expect % to render as a literal percent sign.
       // Escape unescaped % to \% so KaTeX treats it as text.
       latex = latex.replace(/(?<!\\)%/g, '\\%');
 
@@ -87,7 +92,8 @@ export function renderMathInDOM(container) {
           displayMode: isBlock,
           throwOnError: false,
           strict: false,
-          trust: true
+          trust: false,
+          macros: KATEX_MACROS,
         });
         const span = document.createElement(isBlock ? 'div' : 'span');
         if (isBlock) span.className = 'katex-display';

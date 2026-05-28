@@ -29,7 +29,6 @@
     renderKey++;
   }
 
-  // Reactive: get display content from active tab or documentState
   $: displayContent = $tabsEnabled && $activeTab
     ? $activeTab.content
     : $documentState.content;
@@ -54,14 +53,10 @@
     }
   }
 
-  function resolvePath(filePath: string): string {
-    if (filePath.includes(':') || filePath.startsWith('/')) {
-      return filePath;
-    }
-    return filePath;
-  }
+  let _loadGeneration = 0;
 
   async function loadFile(filePath: string, anchor: string | null = null): Promise<void> {
+    const gen = ++_loadGeneration;
     let cleanPath: string = filePath;
     let scrollAnchor: string | null = anchor;
 
@@ -71,13 +66,12 @@
       scrollAnchor = parts.slice(1).join('#') || null;
     }
 
-    let absolutePath: string = resolvePath(cleanPath);
-
-    setLoading(absolutePath);
+    setLoading(cleanPath);
     errorMessage = '';
 
     try {
-      const result: { content: string; path: string } = await openFile(absolutePath);
+      const result: { content: string; path: string } = await openFile(cleanPath);
+      if (gen !== _loadGeneration) return;
 
       if ($tabsEnabled) {
         addTab(result.path, result.content);
@@ -86,20 +80,21 @@
       }
 
       fileModifiedExternally = false;
-      await watchFile(window as Window, result.path);
+      watchFile(window as Window, result.path).catch(() => {});
       addToRecentFiles(result.path);
       if (scrollAnchor) scrollToAnchor(scrollAnchor);
     } catch (err: unknown) {
-      // File not found at direct path — try vault-wide wikilink resolution
+      if (gen !== _loadGeneration) return;
+
       const rawFileName = cleanPath.replace(/\\/g, '/').split('/').pop()?.replace(/\.md$/, '') || '';
       const fileName = decodeURIComponent(rawFileName);
       const currentFile = $tabsEnabled && $activeTab ? $activeTab.filePath : ($documentState.filePath || '');
       const resolved = resolveWikilink(fileName, currentFile);
 
-      if (resolved && resolved !== absolutePath) {
-        // Found in vault — retry with resolved path
+      if (resolved && resolved !== cleanPath) {
         try {
           const result2 = await openFile(resolved);
+          if (gen !== _loadGeneration) return;
 
           if ($tabsEnabled) {
             addTab(result2.path, result2.content);
@@ -108,27 +103,23 @@
           }
 
           fileModifiedExternally = false;
-          await watchFile(window as Window, result2.path);
+          watchFile(window as Window, result2.path).catch(() => {});
           addToRecentFiles(result2.path);
           if (scrollAnchor) scrollToAnchor(scrollAnchor);
           return;
         } catch {
-          // Resolved path also failed — fall through to error
+          if (gen !== _loadGeneration) return;
         }
       }
 
-      // Truly not found
-      console.error('Failed to load file:', err);
       const displayName = fileName || cleanPath;
       errorMessage = `"${displayName}" not found in vault`;
-      setError(absolutePath, errorMessage);
+      if ($tabsEnabled) {
+        clearDocument();
+      } else {
+        setError(cleanPath, errorMessage);
+      }
     }
-  }
-
-  function getFileTitle(filePath: string): string {
-    const parts = filePath.replace(/\\/g, '/').split('/');
-    const name = parts[parts.length - 1];
-    return name.replace(/\.md$/, '');
   }
 
   function scrollToAnchor(anchor: string): void {
@@ -160,10 +151,8 @@
     }
   }
 
-  /** Cache of all .md files in the vault for wikilink resolution */
   let vaultFiles: Array<{name: string; path: string}> = [];
 
-  /** Rebuild vault file index when sidebarRoot changes */
   async function indexVaultFiles(root: string): Promise<void> {
     if (!root) { vaultFiles = []; return; }
     try {
@@ -173,23 +162,19 @@
     }
   }
 
-  /**
-   * Resolve a wikilink page name to a full file path.
-   * Search order: same directory → vault-wide by filename match.
-   */
   function resolveWikilink(pageName: string, currentFilePath: string): string | null {
     const decoded = decodeURIComponent(pageName);
     const basePath = currentFilePath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
 
-    // 1. Try same directory
-    const sameDirPath = `${basePath}/${decoded}.md`;
-    const sameDirMatch = vaultFiles.find(f => f.path.replace(/\\/g, '/') === sameDirPath);
-    if (sameDirMatch) return sameDirMatch.path;
+    for (const ext of ['.md', '.markdown']) {
+      const sameDirPath = `${basePath}/${decoded}${ext}`;
+      const sameDirMatch = vaultFiles.find(f => f.path.replace(/\\/g, '/') === sameDirPath);
+      if (sameDirMatch) return sameDirMatch.path;
+    }
 
-    // 2. Search vault by filename (case-insensitive)
     const targetName = decoded.toLowerCase();
     const match = vaultFiles.find(f => {
-      const fname = f.name.replace(/\.md$/i, '').toLowerCase();
+      const fname = f.name.replace(/\.(md|markdown)$/i, '').toLowerCase();
       return fname === targetName;
     });
     if (match) return match.path;
@@ -210,7 +195,6 @@
   let findInput: HTMLInputElement;
 
   function handleKeydown(event: KeyboardEvent): void {
-    // Ctrl+Shift+F → focus vault search
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'F') {
       event.preventDefault();
       if (sidebarRef?.focusSearch) {
@@ -218,25 +202,22 @@
       }
       return;
     }
-    // Ctrl+F → in-document find
     if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key === 'f') {
       event.preventDefault();
       showFindBar = true;
       setTimeout(() => findInput?.focus(), 50);
       return;
     }
-    // Escape → close find bar
     if (event.key === 'Escape' && showFindBar) {
       showFindBar = false;
       findQuery = '';
-      // Clear selection highlight
       if (window.getSelection) window.getSelection()?.removeAllRanges();
     }
   }
 
   function findNext(): void {
     if (!findQuery.trim()) return;
-    // @ts-ignore — window.find is non-standard but supported in all WebView2/WebKit
+    // @ts-ignore
     window.find(findQuery, false, false, true, false, false, false);
   }
 
@@ -249,11 +230,7 @@
   function handleFindKeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter') {
       event.preventDefault();
-      if (event.shiftKey) {
-        findPrev();
-      } else {
-        findNext();
-      }
+      if (event.shiftKey) findPrev(); else findNext();
     }
     if (event.key === 'Escape') {
       showFindBar = false;
@@ -263,46 +240,40 @@
   }
 
   onMount((): (() => void) => {
-    let cleanups: Array<() => void> = [];
-
-    // Check if this window was opened with a ?file= query parameter (multi-window)
     const urlParams = new URLSearchParams(window.location.search);
     const fileFromQuery = urlParams.get('file');
 
     if (fileFromQuery) {
-      // New window opened for a specific file
-      loadFile(decodeURIComponent(fileFromQuery));
+      const decoded = decodeURIComponent(fileFromQuery);
+      setTimeout(() => { loadFile(decoded); }, 150);
     } else {
-      // Main window — check for cold-start pending file
-      invoke<string | null>('get_pending_file_path').then((pendingPath: string | null) => {
-        if (pendingPath) {
-          console.log('Loading pending file from cold start:', pendingPath);
-          loadFile(pendingPath);
-        }
-      }).catch(() => {
-        console.log('No pending file path');
-      });
+      const pendingTimeout = new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 5000)
+      );
+      Promise.race([invoke<string | null>('get_pending_file_path'), pendingTimeout])
+        .then((pendingPath: string | null) => {
+          if (pendingPath) loadFile(pendingPath);
+        })
+        .catch(() => {});
     }
 
-    Promise.all([
-      listen<string>('open-file', async (event) => {
-        console.log('Open file event received:', event.payload);
-        await loadFile(event.payload);
+    const listenerPromise = Promise.all([
+      listen<string>('open-file', (event) => {
+        loadFile(event.payload);
       }),
-      listen<string>('file-changed', async (event) => {
-        console.log('File changed externally:', event.payload);
+      listen<string>('file-changed', (event) => {
         const changedPath = event.payload;
-        if (changedPath === $documentState.filePath) {
+        const currentFilePath = $tabsEnabled && $activeTab
+          ? $activeTab.filePath
+          : $documentState.filePath;
+        if (changedPath === currentFilePath) {
           fileModifiedExternally = true;
         }
       })
-    ]).then(([unlistenOpenFile, unlistenFileChanged]) => {
-      cleanups.push(unlistenOpenFile);
-      cleanups.push(unlistenFileChanged);
-    });
+    ]);
 
     return () => {
-      for (const cleanup of cleanups) cleanup();
+      listenerPromise.then(([un1, un2]) => { un1(); un2(); });
     };
   });
 </script>
@@ -314,7 +285,10 @@
     {#if fileModifiedExternally}
       <div class="file-modified-banner">
         <span>File has been modified externally</span>
-        <button on:click={() => loadFile($documentState.filePath || '')}>Refresh</button>
+        <button on:click={() => {
+          const path = $tabsEnabled && $activeTab ? $activeTab.filePath : $documentState.filePath;
+          if (path) loadFile(path);
+        }}>Refresh</button>
       </div>
     {/if}
     <div class="header-inner">

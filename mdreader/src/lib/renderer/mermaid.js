@@ -46,8 +46,11 @@ export async function processMermaidBlocks(container, isDark = false) {
 
     const code = codeEl.textContent.trim();
     const isExplicitMermaid = preEl.classList.contains('mermaid-block');
+    // Only apply heuristic detection on code blocks WITHOUT an explicit language specifier
+    const hasLangSpecifier = codeEl.classList.contains('hljs') ||
+      Array.from(codeEl.classList).some(c => c.startsWith('language-'));
 
-    if (isExplicitMermaid ||
+    if (isExplicitMermaid || (!hasLangSpecifier && (
         code.startsWith('flowchart') || code.startsWith('sequenceDiagram') ||
         code.startsWith('classDiagram') || code.startsWith('stateDiagram') ||
         code.startsWith('pie') || code.startsWith('erDiagram') ||
@@ -55,7 +58,7 @@ export async function processMermaidBlocks(container, isDark = false) {
         code.startsWith('gantt') || code.startsWith('journey') ||
         code.startsWith('gitGraph') || code.startsWith('timeline') ||
         code.startsWith('xychart') || code.startsWith('sankey') ||
-        code.startsWith('block') || code.startsWith('packet')) {
+        code.startsWith('block') || code.startsWith('packet')))) {
 
       try {
         const id = `mermaid-${++mermaidIdCounter}`;

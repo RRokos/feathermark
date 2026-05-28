@@ -8,9 +8,10 @@ import DOMPurify from 'dompurify';
  * @param {HTMLDivElement} container
  * @param {string} currentFilePath
  * @param {Set<string>} embedChain
+ * @param {boolean} isDark
  * @returns {Promise<void>}
  */
-export async function processEmbeds(container, currentFilePath, embedChain = new Set()) {
+export async function processEmbeds(container, currentFilePath, embedChain = new Set(), isDark = false) {
   const basePath = currentFilePath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
   const embedElements = container.querySelectorAll('.embed-markdown');
 
@@ -20,7 +21,10 @@ export async function processEmbeds(container, currentFilePath, embedChain = new
 
     // Check for cycle using a per-branch copy
     if (embedChain.has(embedPath)) {
-      embedEl.innerHTML = `<span class="embed-error">Circular embed detected: ${embedPath}</span>`;
+      const errSpan = document.createElement('span');
+      errSpan.className = 'embed-error';
+      errSpan.textContent = `Circular embed detected: ${embedPath}`;
+      embedEl.replaceChildren(errSpan);
       continue;
     }
 
@@ -45,12 +49,15 @@ export async function processEmbeds(container, currentFilePath, embedChain = new
 
       // Post-process: KaTeX and Mermaid inside embeds
       renderMathInDOM(/** @type {HTMLElement} */ (embedEl));
-      await processMermaidBlocks(/** @type {HTMLElement} */ (embedEl));
+      await processMermaidBlocks(/** @type {HTMLElement} */ (embedEl), isDark);
 
       // Recursively process nested embeds
-      await processEmbeds(/** @type {HTMLDivElement} */ (embedEl), fullPath, branchChain);
+      await processEmbeds(/** @type {HTMLDivElement} */ (embedEl), fullPath, branchChain, isDark);
     } catch (err) {
-      embedEl.innerHTML = `<span class="embed-error">Failed to load: ${embedPath}</span>`;
+      const errSpan = document.createElement('span');
+      errSpan.className = 'embed-error';
+      errSpan.textContent = `Failed to load: ${embedPath}`;
+      embedEl.replaceChildren(errSpan);
     }
   }
 

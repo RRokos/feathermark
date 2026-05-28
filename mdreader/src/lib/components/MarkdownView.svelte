@@ -16,11 +16,13 @@
   let renderedHtml: string = '';
   let parsedContent: string = '';
   let mermaidProcessed: boolean = false;
+  let prevRenderedHtml: string = '';
+  let prevIsDark: boolean = isDark;
+  let renderGeneration: number = 0;
 
-  // Configure DOMPurify to allow our custom elements and attributes
   const purifyConfig = {
     ADD_TAGS: ['span', 'div', 'sup', 'ol', 'li', 'hr', 'svg', 'path', 'g', 'rect', 'text', 'line', 'circle', 'polygon', 'polyline', 'marker', 'defs', 'clipPath', 'foreignObject', 'tspan'],
-    ADD_ATTR: ['class', 'data-embed-path', 'data-footnote-id', 'id', 'style', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'transform', 'x', 'y', 'width', 'height', 'rx', 'ry', 'cx', 'cy', 'r', 'points', 'marker-end', 'marker-start', 'text-anchor', 'dominant-baseline', 'font-size', 'font-family', 'clip-path', 'dx', 'dy'],
+    ADD_ATTR: ['class', 'data-embed-path', 'data-footnote-id', 'id', 'style', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'transform', 'x', 'y', 'width', 'height', 'rx', 'ry', 'cx', 'cy', 'r', 'points', 'marker-end', 'marker-start', 'text-anchor', 'dominant-baseline', 'font-size', 'font-family', 'clip-path', 'dx', 'dy', 'data-original-width'],
     ALLOW_DATA_ATTR: true,
     ALLOW_UNKNOWN_PROTOCOLS: true
   };
@@ -31,7 +33,6 @@
     const result = parseFrontmatter(content);
     parsedContent = result.body;
 
-    // Build frontmatter display
     if (result.frontmatter && Object.keys(result.frontmatter).length > 0) {
       const rows = Object.entries(result.frontmatter)
         .map(([k, v]) => `<tr><td class="fm-key">${DOMPurify.sanitize(k)}</td><td class="fm-val">${DOMPurify.sanitize(String(v))}</td></tr>`)
@@ -44,51 +45,64 @@
     const rawHtml = renderMarkdown(parsedContent);
     renderedHtml = frontmatterHtml + DOMPurify.sanitize(rawHtml, purifyConfig);
     mermaidProcessed = false;
+    renderGeneration++;
   }
 
   const MERMAID_FIT_KEY = 'mdreader_mermaid_fit';
 
-  afterUpdate(async (): Promise<void> => {
-    if (container && renderedHtml) {
+  afterUpdate((): void => {
+    if (!container || !renderedHtml) return;
+
+    const htmlChanged = renderedHtml !== prevRenderedHtml;
+    const darkChanged = isDark !== prevIsDark;
+    prevIsDark = isDark;
+    const gen = renderGeneration;
+
+    if (htmlChanged) {
+      prevRenderedHtml = renderedHtml;
       container.innerHTML = renderedHtml;
 
-      // Process math using DOM-based approach (safe against HTML attribute corruption)
-      renderMathInDOM(container);
+      try { renderMathInDOM(container); } catch (e) { console.error('[KaTeX] render error:', e); }
 
       if (!mermaidProcessed) {
         mermaidProcessed = true;
-        await tick();
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        if (container) {
-          await processMermaidBlocks(container, isDark);
-
-          // Apply sizing based on setting
-          const fitWidth = localStorage.getItem(MERMAID_FIT_KEY) === 'true';
-          container.querySelectorAll('.mermaid-diagram').forEach((el) => {
-            const svg = el.querySelector('svg');
-            if (!svg) return;
-
-            if (fitWidth) {
-              svg.style.width = '100%';
-              svg.style.height = 'auto';
-              svg.style.maxWidth = '100%';
-            } else {
-              // Obsidian style: original size, page scrolls horizontally
-              const origWidth = svg.getAttribute('data-original-width');
-              if (origWidth) {
-                svg.style.width = origWidth + 'px';
-                svg.style.height = 'auto';
-                svg.style.maxWidth = 'none';
-              }
-            }
+        tick().then(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))).then(() => {
+          if (!container || gen !== renderGeneration) return;
+          return processMermaidBlocks(container, isDark).then(() => {
+            if (gen !== renderGeneration) return;
+            applyMermaidSizing();
           });
-        }
+        }).catch((e) => console.error('[Mermaid] render error:', e));
       }
 
-      // Process embeds
-      await processEmbeds(container, filePath);
+      processEmbeds(container, filePath, new Set(), isDark).catch((e) => console.error('[Embed] error:', e));
+    } else if (darkChanged) {
+      processMermaidBlocks(container, isDark).then(() => {
+        applyMermaidSizing();
+      }).catch((e) => console.error('[Mermaid] re-render error:', e));
     }
   });
+
+  function applyMermaidSizing(): void {
+    if (!container) return;
+    const fitWidth = localStorage.getItem(MERMAID_FIT_KEY) === 'true';
+    container.querySelectorAll('.mermaid-diagram').forEach((el) => {
+      const svg = el.querySelector('svg');
+      if (!svg) return;
+      if (fitWidth) {
+        svg.style.width = '100%';
+        svg.style.height = 'auto';
+        svg.style.maxWidth = '100%';
+      } else {
+        const origWidth = svg.getAttribute('data-original-width');
+        if (origWidth) {
+          svg.style.width = origWidth + 'px';
+          svg.style.height = 'auto';
+          svg.style.maxWidth = 'none';
+        }
+      }
+    });
+  }
 
   function getBasePath(): string {
     if (!filePath) return '';

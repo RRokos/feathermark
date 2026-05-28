@@ -95,13 +95,18 @@ export function preprocessTags(content) {
       result.push(line);
       continue;
     }
-    result.push(line.replace(TAG_REGEX, (match, tag) => {
-      // Skip common programming tokens like #include, #define, #ifdef, etc.
-      if (/^(include|define|ifdef|ifndef|endif|pragma|undef|if|else|elif|error|warning|line)$/i.test(tag)) {
-        return match;
-      }
-      return `${match.slice(0, -tag.length - 1)}<span class="tag">#${tag}</span>`;
-    }));
+    // Process tags only outside inline code spans
+    const parts = line.split(/(`[^`]+`)/g);
+    const processed = parts.map((part, idx) => {
+      if (idx % 2 === 1) return part; // Inline code — skip
+      return part.replace(TAG_REGEX, (match, tag) => {
+        if (/^(include|define|ifdef|ifndef|endif|pragma|undef|if|else|elif|error|warning|line)$/i.test(tag)) {
+          return match;
+        }
+        return `${match.slice(0, -tag.length - 1)}<span class="tag">#${tag}</span>`;
+      });
+    });
+    result.push(processed.join(''));
   }
 
   return result.join('\n');
@@ -264,6 +269,11 @@ export function preprocessWikilinks(content) {
     const pageName = parts[0];
     const heading = parts[1] || '';
 
+    // [[#Heading]] — anchor within current document
+    if (!pageName && heading) {
+      return `[${displayText}](#${encodeURIComponent(heading)})`;
+    }
+
     const encodedPage = encodeURIComponent(pageName);
     const linkPath = heading ? `/vault/${encodedPage}#${encodeURIComponent(heading)}` : `/vault/${encodedPage}`;
 
@@ -301,7 +311,7 @@ export function preprocessFootnotes(content) {
     const processedLine = line.replace(FOOTNOTE_REF_REGEX, (match, id) => {
       if (footnoteDefs.has(id)) {
         footnoteRefs.set(id, true);
-        return `<sup class="footnote-ref" data-footnote-id="${id}">[${id}]</sup>`;
+        return `<sup class="footnote-ref" data-footnote-id="${id}"><a href="#footnote-${id}">[${id}]</a></sup>`;
       }
       return match;
     });
@@ -336,7 +346,7 @@ export function preprocessFootnotes(content) {
  * @returns {{frontmatter: object|null, body: string}}
  */
 export function parseFrontmatter(content) {
-  const frontmatterRegex = /^---\n([\s\S]*?)\n---\n/;
+  const frontmatterRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/;
   const match = content.match(frontmatterRegex);
 
   if (!match) {
@@ -417,6 +427,25 @@ function unshieldMath(html, mathBlocks) {
 }
 
 /**
+ * Escape HTML-special characters inside math expressions so DOMPurify
+ * doesn't strip them (e.g. "$-1 < x < 1$" — the "< x <" looks like an
+ * HTML tag to the sanitizer).
+ * After DOMPurify the entities survive; the browser decodes them back via
+ * innerHTML, and KaTeX reads the correct characters from textContent.
+ * @param {string} html
+ * @returns {string}
+ */
+function escapeMathHtml(html) {
+  return html.replace(/(\$\$?)([\s\S]*?)\1/g, (match, delim, body) => {
+    const escaped = body
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    return delim + escaped + delim;
+  });
+}
+
+/**
  * @param {string} content
  * @returns {string}
  */
@@ -431,6 +460,8 @@ export function renderMarkdown(content) {
   const { text: shielded, mathBlocks } = shieldMath(processed);
   let html = md.render(shielded);
   html = unshieldMath(html, mathBlocks);
+  // Escape < / > inside math so DOMPurify won't strip them
+  html = escapeMathHtml(html);
   return html;
 }
 

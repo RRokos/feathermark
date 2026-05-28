@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.4 (2026-05-28)
+
+### Bug Fix: Math formulas with `<`/`>` stripped by DOMPurify
+
+Math expressions containing `<` or `>` (e.g. `$-1 < x < 1$`) were being corrupted by DOMPurify, which interpreted them as HTML tags.
+
+**Fix:** Added `escapeMathHtml()` in `markdown.js` to escape `&`, `<`, `>` inside math expressions to HTML entities before DOMPurify sanitization. The browser auto-decodes them back via `innerHTML`, and KaTeX reads the correct characters from `textContent`.
+
+---
+
 ## v0.1.3 (2026-05-28)
 
 ### Critical Fix: Multi-window IPC Deadlock
