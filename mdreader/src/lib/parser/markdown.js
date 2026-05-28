@@ -417,6 +417,25 @@ function unshieldMath(html, mathBlocks) {
 }
 
 /**
+ * Escape HTML-special characters inside math expressions so DOMPurify
+ * doesn't strip them (e.g. "$-1 < x < 1$" — the "< x <" looks like an
+ * HTML tag to the sanitizer).
+ * After DOMPurify the entities survive; the browser decodes them back via
+ * innerHTML, and KaTeX reads the correct characters from textContent.
+ * @param {string} html
+ * @returns {string}
+ */
+function escapeMathHtml(html) {
+  return html.replace(/(\$\$?)([\s\S]*?)\1/g, (match, delim, body) => {
+    const escaped = body
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    return delim + escaped + delim;
+  });
+}
+
+/**
  * @param {string} content
  * @returns {string}
  */
@@ -431,6 +450,8 @@ export function renderMarkdown(content) {
   const { text: shielded, mathBlocks } = shieldMath(processed);
   let html = md.render(shielded);
   html = unshieldMath(html, mathBlocks);
+  // Escape < / > inside math so DOMPurify won't strip them
+  html = escapeMathHtml(html);
   return html;
 }
 

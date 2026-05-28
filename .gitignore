@@ -15,3 +15,5 @@ patches/
 tauri-smoke/
 temp/
 mdreader/scripts/
+screenshot*.png
+test_math.md
