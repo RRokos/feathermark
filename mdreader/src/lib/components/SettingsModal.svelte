@@ -2,6 +2,7 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
   import { tabsEnabled } from '$lib/stores/tabs.js';
+  import { accentColor } from '$lib/stores/document.js';
 
   const dispatch = createEventDispatcher<{ close: void; settingsChanged: void }>();
 
@@ -22,6 +23,13 @@
   let useCustom: boolean = false;
   let enableTabs: boolean = false;
   let mermaidFitWidth: boolean = false;
+  let selectedAccent: string = '#646cff';
+
+  const accentPresets = [
+    '#646cff', '#7c3aed', '#6366f1', '#0ea5e9',
+    '#14b8a6', '#22c55e', '#eab308', '#f97316',
+    '#ef4444', '#ec4899', '#a855f7', '#6b7280'
+  ];
 
   onMount(() => {
     const saved = localStorage.getItem(EDITOR_KEY) || '';
@@ -39,6 +47,7 @@
 
     enableTabs = localStorage.getItem(TABS_KEY) === 'true';
     mermaidFitWidth = localStorage.getItem(MERMAID_FIT_KEY) === 'true';
+    selectedAccent = localStorage.getItem('mdreader_accent_color') || '#646cff';
   });
 
   async function browseEditor(): Promise<void> {
@@ -63,6 +72,8 @@
     tabsEnabled.set(enableTabs);
 
     localStorage.setItem(MERMAID_FIT_KEY, String(mermaidFitWidth));
+
+    accentColor.set(selectedAccent);
 
     dispatch('settingsChanged');
     dispatch('close');
@@ -153,6 +164,37 @@
           <span>Fit diagram to text width</span>
         </label>
         <p class="hint">{mermaidFitWidth ? 'Diagrams scale to fit the text column.' : 'Diagrams keep original size, scroll horizontally if wider.'}</p>
+      </div>
+
+      <div class="section section-divider">
+        <h4>Accent Color</h4>
+        <p class="hint">Choose a theme accent color for the interface.</p>
+        <div class="color-palette">
+          {#each accentPresets as color}
+            <button
+              class="color-swatch"
+              class:selected={selectedAccent === color}
+              style="background: {color}"
+              on:click={() => selectedAccent = color}
+              title={color}
+            >
+              {#if selectedAccent === color}
+                <span class="check-mark">✓</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+        <div class="custom-color">
+          <label class="custom-color-label" for="accent-color-picker">Custom:</label>
+          <input
+            id="accent-color-picker"
+            type="color"
+            value={selectedAccent}
+            on:input={(e) => selectedAccent = e.currentTarget.value}
+            class="color-input"
+          />
+          <span class="color-hex">{selectedAccent}</span>
+        </div>
       </div>
     </div>
 
@@ -260,15 +302,15 @@
   }
 
   .radio-item:hover {
-    background: rgba(100, 108, 255, 0.06);
+    background: var(--accent-bg);
   }
 
   .radio-item.selected {
-    background: rgba(100, 108, 255, 0.1);
+    background: var(--accent-bg);
   }
 
   .radio-item input[type="radio"] {
-    accent-color: #646cff;
+    accent-color: var(--accent);
   }
 
   .radio-label {
@@ -302,7 +344,7 @@
 
   .custom-input input:focus {
     outline: none;
-    border-color: #646cff;
+    border-color: var(--accent);
   }
 
   :global(.dark) .custom-input input {
@@ -357,11 +399,11 @@
   }
 
   .toggle-item:hover {
-    background: rgba(100, 108, 255, 0.06);
+    background: var(--accent-bg);
   }
 
   .toggle-item input[type="checkbox"] {
-    accent-color: #646cff;
+    accent-color: var(--accent);
     width: 16px;
     height: 16px;
   }
@@ -386,6 +428,77 @@
     border: none;
   }
 
+  .color-palette {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .color-swatch {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .color-swatch:hover {
+    transform: scale(1.15);
+  }
+
+  .color-swatch.selected {
+    border-color: #333;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px #333;
+  }
+
+  :global(.dark) .color-swatch.selected {
+    border-color: #e0e0e0;
+    box-shadow: 0 0 0 2px #1e1e1e, 0 0 0 4px #e0e0e0;
+  }
+
+  .check-mark {
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: bold;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+
+  .custom-color {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .custom-color-label {
+    font-size: 0.85rem;
+    color: #888;
+  }
+
+  .color-input {
+    width: 36px;
+    height: 30px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 2px;
+  }
+
+  :global(.dark) .color-input {
+    border-color: #555;
+  }
+
+  .color-hex {
+    font-size: 0.8rem;
+    color: #888;
+    font-family: monospace;
+  }
+
   .btn-secondary {
     background: #e0e0e0;
     color: #333;
@@ -405,11 +518,11 @@
   }
 
   .btn-primary {
-    background: #646cff;
+    background: var(--accent);
     color: #fff;
   }
 
   .btn-primary:hover {
-    background: #5558e0;
+    background: var(--accent-hover);
   }
 </style>

@@ -2,6 +2,8 @@ import mermaid from 'mermaid';
 
 let initialized = false;
 let currentTheme = 'default';
+/** @type {Promise<void>|null} */
+let initPromise = null;
 
 /**
  * @param {boolean} isDark
@@ -12,18 +14,27 @@ async function initializeMermaid(isDark = false) {
 
   if (initialized && currentTheme === theme) return;
 
-  try {
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: 'strict',
-      theme,
-      fontFamily: 'Arial, sans-serif'
-    });
-    initialized = true;
-    currentTheme = theme;
-  } catch (e) {
-    console.error('Mermaid init error:', e);
-  }
+  // Guard against concurrent initialization
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    try {
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme,
+        fontFamily: 'Arial, sans-serif'
+      });
+      initialized = true;
+      currentTheme = theme;
+    } catch (e) {
+      console.error('Mermaid init error:', e);
+      // Allow retry on next call
+      initPromise = null;
+    }
+  })();
+
+  return initPromise;
 }
 
 let mermaidIdCounter = 0;
@@ -36,8 +47,8 @@ let mermaidIdCounter = 0;
 export async function processMermaidBlocks(container, isDark = false) {
   await initializeMermaid(isDark);
 
-  // Find mermaid blocks: both explicitly tagged and heuristic detection
-  const mermaidBlocks = container.querySelectorAll('pre.mermaid-block, pre.code-block');
+  // Find mermaid blocks: only explicitly tagged (```mermaid code blocks)
+  const mermaidBlocks = container.querySelectorAll('pre.mermaid-block');
 
   for (let i = 0; i < mermaidBlocks.length; i++) {
     const preEl = mermaidBlocks[i];
@@ -45,17 +56,8 @@ export async function processMermaidBlocks(container, isDark = false) {
     if (!codeEl || !codeEl.textContent) continue;
 
     const code = codeEl.textContent.trim();
-    const isExplicitMermaid = preEl.classList.contains('mermaid-block');
 
-    if (isExplicitMermaid ||
-        code.startsWith('flowchart') || code.startsWith('sequenceDiagram') ||
-        code.startsWith('classDiagram') || code.startsWith('stateDiagram') ||
-        code.startsWith('pie') || code.startsWith('erDiagram') ||
-        code.startsWith('graph') || code.startsWith('mindmap') ||
-        code.startsWith('gantt') || code.startsWith('journey') ||
-        code.startsWith('gitGraph') || code.startsWith('timeline') ||
-        code.startsWith('xychart') || code.startsWith('sankey') ||
-        code.startsWith('block') || code.startsWith('packet')) {
+    {
 
       try {
         const id = `mermaid-${++mermaidIdCounter}`;
@@ -100,6 +102,7 @@ export async function processMermaidBlocks(container, isDark = false) {
  */
 export function resetMermaid() {
   initialized = false;
+  initPromise = null;
 }
 
 export default mermaid;

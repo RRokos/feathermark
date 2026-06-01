@@ -8,12 +8,14 @@
   import SettingsModal from '$lib/components/SettingsModal.svelte';
   import TabBar from '$lib/components/TabBar.svelte';
   import {
-    documentState, theme, recentFiles,
-    setDocument, setLoading, setError, clearDocument, addToRecentFiles, clearRecentFiles
+    documentState, theme, recentFiles, recentVaults,
+    setDocument, setLoading, setError, clearDocument, addToRecentFiles,
+    removeRecentFile,
+    addToRecentVaults, clearAllRecents
   } from '$lib/stores/document.js';
   import {
-    tabsEnabled, activeTab, activeTabId,
-    addTab, removeTab, saveScrollPos, clearTabs
+    tabsEnabled, activeTab,
+    addTab, clearTabs
   } from '$lib/stores/tabs.js';
   import { openFile, watchFile, openInEditor, listMarkdownFiles } from '$lib/services/file.js';
 
@@ -22,8 +24,8 @@
   let fileModifiedExternally: boolean = false;
   let sidebarRef: any = null;
   let showSettings: boolean = false;
-  let contentEl: HTMLDivElement;
   let renderKey: number = 0;
+  let recentTab: 'vaults' | 'files' = 'vaults';
 
   function handleSettingsChanged(): void {
     renderKey++;
@@ -54,14 +56,8 @@
     }
   }
 
-  function resolvePath(filePath: string): string {
-    if (filePath.includes(':') || filePath.startsWith('/')) {
-      return filePath;
-    }
-    return filePath;
-  }
-
   async function loadFile(filePath: string, anchor: string | null = null): Promise<void> {
+    if (!filePath) return;
     let cleanPath: string = filePath;
     let scrollAnchor: string | null = anchor;
 
@@ -71,7 +67,8 @@
       scrollAnchor = parts.slice(1).join('#') || null;
     }
 
-    let absolutePath: string = resolvePath(cleanPath);
+    // Backend handles relative path resolution via current_dir()
+    let absolutePath: string = cleanPath;
 
     setLoading(absolutePath);
     errorMessage = '';
@@ -79,64 +76,87 @@
     try {
       const result: { content: string; path: string } = await openFile(absolutePath);
 
+      // Always update documentState so status stays in sync
+      setDocument(result.path, result.content);
       if ($tabsEnabled) {
         addTab(result.path, result.content);
-      } else {
-        setDocument(result.path, result.content);
       }
 
       fileModifiedExternally = false;
-      await watchFile(window as Window, result.path);
       addToRecentFiles(result.path);
       if (scrollAnchor) scrollToAnchor(scrollAnchor);
+
+      // Watch file separately — failure should not block display
+      watchFile(result.path).catch((watchErr: unknown) => {
+        console.warn('Failed to watch file:', watchErr);
+      });
     } catch (err: unknown) {
-      // File not found at direct path — try vault-wide wikilink resolution
+      const errStr = String(err);
+      const isNotFound = errStr.includes('not found') || errStr.includes('File not found') || errStr.includes('找不到');
+
+      if (!isNotFound) {
+        // Permission / encoding / IO error — show raw message, don't remove from recents
+        console.error('Failed to load file:', err);
+        errorMessage = errStr;
+        setError(absolutePath, errorMessage);
+        return;
+      }
+
+      // File not found — try vault-wide wikilink resolution
       const rawFileName = cleanPath.replace(/\\/g, '/').split('/').pop()?.replace(/\.md$/, '') || '';
       const fileName = decodeURIComponent(rawFileName);
       const currentFile = $tabsEnabled && $activeTab ? $activeTab.filePath : ($documentState.filePath || '');
       const resolved = resolveWikilink(fileName, currentFile);
 
       if (resolved && resolved !== absolutePath) {
-        // Found in vault — retry with resolved path
         try {
           const result2 = await openFile(resolved);
 
+          setDocument(result2.path, result2.content);
           if ($tabsEnabled) {
             addTab(result2.path, result2.content);
-          } else {
-            setDocument(result2.path, result2.content);
           }
 
           fileModifiedExternally = false;
-          await watchFile(window as Window, result2.path);
           addToRecentFiles(result2.path);
+          removeRecentFile(absolutePath);
           if (scrollAnchor) scrollToAnchor(scrollAnchor);
+
+          watchFile(result2.path).catch((watchErr: unknown) => {
+            console.warn('Failed to watch file:', watchErr);
+          });
           return;
-        } catch {
-          // Resolved path also failed — fall through to error
+        } catch (resolveErr) {
+          console.warn('Wikilink resolution also failed:', resolveErr);
         }
       }
 
-      // Truly not found
-      console.error('Failed to load file:', err);
-      const displayName = fileName || cleanPath;
-      errorMessage = `"${displayName}" not found in vault`;
+      // Not found anywhere — remove stale entry
+      console.error('File not found, removing from recent:', absolutePath);
+      removeRecentFile(absolutePath);
+      const displayName = fileName
+        ? `${fileName}.md`
+        : cleanPath.replace(/\\/g, '/').split('/').pop() || cleanPath;
+      errorMessage = `${displayName} 已不存在（可能被移动或删除），已从最近文件中移除`;
       setError(absolutePath, errorMessage);
     }
   }
 
-  function getFileTitle(filePath: string): string {
-    const parts = filePath.replace(/\\/g, '/').split('/');
-    const name = parts[parts.length - 1];
-    return name.replace(/\.md$/, '');
+  function getFolderName(folderPath: string): string {
+    const parts = folderPath.replace(/\\/g, '/').split('/');
+    return parts[parts.length - 1] || folderPath;
   }
 
   function scrollToAnchor(anchor: string): void {
     setTimeout(() => {
-      const heading: Element | null = document.getElementById(anchor) ||
-        document.querySelector(`[id="${anchor}"]`);
-      if (heading) {
-        heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try {
+        const heading: Element | null = document.getElementById(anchor) ||
+          document.querySelector(`[id="${CSS.escape(anchor)}"]`);
+        if (heading) {
+          heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      } catch {
+        // Invalid anchor characters — silently ignore
       }
     }, 150);
   }
@@ -151,13 +171,23 @@
   }
 
   async function selectVaultFolder(): Promise<void> {
-    const selected = await open({ directory: true, multiple: false });
-    if (selected && typeof selected === 'string') {
-      sidebarRoot = '';
-      await new Promise(r => setTimeout(r, 50));
-      sidebarRoot = selected;
-      indexVaultFiles(sidebarRoot);
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (selected && typeof selected === 'string') {
+        openVault(selected);
+      }
+    } catch (err) {
+      console.error('Failed to open folder dialog:', err);
     }
+  }
+
+  function openVault(vaultPath: string): void {
+    sidebarRoot = '';
+    setTimeout(() => {
+      sidebarRoot = vaultPath;
+      indexVaultFiles(sidebarRoot).catch(err => console.error('Failed to index vault files:', err));
+      addToRecentVaults(vaultPath);
+    }, 50);
   }
 
   /** Cache of all .md files in the vault for wikilink resolution */
@@ -270,8 +300,12 @@
     const fileFromQuery = urlParams.get('file');
 
     if (fileFromQuery) {
-      // New window opened for a specific file
-      loadFile(decodeURIComponent(fileFromQuery));
+      // New window opened for a specific file — catch errors to avoid silent white screen
+      const filePath = decodeURIComponent(fileFromQuery);
+      loadFile(filePath).catch((err: unknown) => {
+        console.error('[new-window] Failed to load file:', err);
+        setError(filePath, String(err));
+      });
     } else {
       // Main window — check for cold-start pending file
       invoke<string | null>('get_pending_file_path').then((pendingPath: string | null) => {
@@ -284,22 +318,19 @@
       });
     }
 
-    Promise.all([
-      listen<string>('open-file', async (event) => {
-        console.log('Open file event received:', event.payload);
-        await loadFile(event.payload);
-      }),
-      listen<string>('file-changed', async (event) => {
-        console.log('File changed externally:', event.payload);
-        const changedPath = event.payload;
-        if (changedPath === $documentState.filePath) {
-          fileModifiedExternally = true;
-        }
-      })
-    ]).then(([unlistenOpenFile, unlistenFileChanged]) => {
-      cleanups.push(unlistenOpenFile);
-      cleanups.push(unlistenFileChanged);
-    });
+    listen<string>('open-file', async (event) => {
+      console.log('Open file event received:', event.payload);
+      await loadFile(event.payload);
+    }).then(unlisten => cleanups.push(unlisten));
+
+    listen<string>('file-changed', async (event) => {
+      console.log('File changed externally:', event.payload);
+      const changedPath = event.payload;
+      const activeFilePath = $tabsEnabled && $activeTab ? $activeTab.filePath : $documentState.filePath;
+      if (changedPath === activeFilePath) {
+        fileModifiedExternally = true;
+      }
+    }).then(unlisten => cleanups.push(unlisten));
 
     return () => {
       for (const cleanup of cleanups) cleanup();
@@ -314,7 +345,7 @@
     {#if fileModifiedExternally}
       <div class="file-modified-banner">
         <span>File has been modified externally</span>
-        <button on:click={() => loadFile($documentState.filePath || '')}>Refresh</button>
+        <button on:click={() => loadFile(displayFilePath)}>Refresh</button>
       </div>
     {/if}
     <div class="header-inner">
@@ -371,7 +402,7 @@
         </div>
       {/if}
 
-      <div class="content" bind:this={contentEl}>
+      <div class="content">
         {#if displayStatus === 'loading'}
           <div class="loading">
             <div class="spinner"></div>
@@ -381,8 +412,8 @@
           <div class="error">
             <h2>Error Loading Document</h2>
             <p>{errorMessage || $documentState.error}</p>
-            {#if $documentState.filePath}
-              <button on:click={() => loadFile($documentState.filePath || '')}>Retry</button>
+            {#if displayFilePath}
+              <button on:click={() => loadFile(displayFilePath)}>Retry</button>
             {/if}
           </div>
         {:else if displayStatus === 'ready' && displayContent}
@@ -405,18 +436,56 @@
               </button>
             </div>
 
-            {#if $recentFiles.length > 0}
-              <div class="recent-files">
-                <div class="recent-header">
-                  <h3>Recent</h3>
-                  <button class="clear-btn" on:click={clearRecentFiles} title="Clear recent files">🗑️ Clear</button>
+            {#if $recentVaults.length > 0 || $recentFiles.length > 0}
+              <div class="recent-section">
+                <div class="recent-tabs">
+                  <button
+                    class="tab-btn"
+                    class:active={recentTab === 'vaults'}
+                    on:click={() => recentTab = 'vaults'}
+                  >
+                    Vaults {#if $recentVaults.length > 0}<span class="tab-count">{$recentVaults.length}</span>{/if}
+                  </button>
+                  <button
+                    class="tab-btn"
+                    class:active={recentTab === 'files'}
+                    on:click={() => recentTab = 'files'}
+                  >
+                    Files {#if $recentFiles.length > 0}<span class="tab-count">{$recentFiles.length}</span>{/if}
+                  </button>
                 </div>
-                <ul>
-                  {#each $recentFiles.slice(0, 5) as file}
-                    <li><button on:click={() => loadFile(file)}>{file.replace(/\\/g, '/').split('/').pop()}</button></li>
-                  {/each}
-                </ul>
+
+                <div class="recent-list">
+                  {#if recentTab === 'vaults'}
+                    {#if $recentVaults.length > 0}
+                      <ul>
+                        {#each $recentVaults as vault}
+                          <li>
+                            <button class="vault-entry" on:click={() => openVault(vault)}>
+                              <span class="vault-name">{getFolderName(vault)}</span>
+                              <span class="vault-path">{vault}</span>
+                            </button>
+                          </li>
+                        {/each}
+                      </ul>
+                    {:else}
+                      <p class="empty-hint">No recent vaults</p>
+                    {/if}
+                  {:else}
+                    {#if $recentFiles.length > 0}
+                      <ul>
+                        {#each $recentFiles as file}
+                          <li><button on:click={() => loadFile(file)}>{file.replace(/\\/g, '/').split('/').pop()}</button></li>
+                        {/each}
+                      </ul>
+                    {:else}
+                      <p class="empty-hint">No recent files</p>
+                    {/if}
+                  {/if}
+                </div>
               </div>
+
+              <button class="clear-btn" on:click={clearAllRecents} title="Clear all recent items">🗑️ Clear</button>
             {/if}
           </div>
         {/if}
@@ -481,7 +550,7 @@
 
   .file-modified-banner button {
     padding: 4px 12px;
-    background: #646cff;
+    background: var(--accent);
     color: white;
     border: none;
     border-radius: 4px;
@@ -490,7 +559,7 @@
   }
 
   .file-modified-banner button:hover {
-    background: #5558e0;
+    background: var(--accent-hover);
   }
 
   .header-inner {
@@ -589,7 +658,7 @@
   }
 
   .find-bar input:focus {
-    border-color: #646cff;
+    border-color: var(--accent);
   }
 
   :global(.dark) .find-bar input {
@@ -634,7 +703,7 @@
     width: 32px;
     height: 32px;
     border: 3px solid #e0e0e0;
-    border-top-color: #646cff;
+    border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
@@ -655,7 +724,7 @@
 
   .error button {
     padding: 8px 16px;
-    background: #646cff;
+    background: var(--accent);
     color: white;
     border: none;
     border-radius: 4px;
@@ -704,13 +773,13 @@
   }
 
   .welcome-btn.primary {
-    background: #646cff;
+    background: var(--accent);
     color: white;
-    border-color: #646cff;
+    border-color: var(--accent);
   }
 
   .welcome-btn.primary:hover {
-    background: #5558e0;
+    background: var(--accent-hover);
   }
 
   :global(.dark) .welcome-btn {
@@ -724,56 +793,139 @@
   }
 
   :global(.dark) .welcome-btn.primary {
-    background: #646cff;
+    background: var(--accent);
     color: white;
-    border-color: #646cff;
+    border-color: var(--accent);
   }
 
   :global(.dark) .welcome-btn.primary:hover {
-    background: #5558e0;
+    background: var(--accent-hover);
   }
 
-  .recent-files {
-    padding: 16px;
+  .recent-section {
+    padding: 0;
     background: #f6f6f6;
     border-radius: 8px;
     width: 100%;
     max-width: 320px;
+    overflow: hidden;
   }
 
-  :global(.dark) .recent-files {
+  :global(.dark) .recent-section {
     background: #252526;
   }
 
-  .recent-files h3 {
-    font-size: 0.9rem;
-    margin-bottom: 8px;
-  }
-
-  .recent-header {
+  .recent-tabs {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
+    border-bottom: 1px solid #e0e0e0;
   }
 
-  .recent-header h3 {
+  :global(.dark) .recent-tabs {
+    border-bottom-color: #444;
+  }
+
+  .tab-btn {
+    flex: 1;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: #999;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .tab-btn:hover {
+    color: #666;
+  }
+
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
+
+  :global(.dark) .tab-btn {
+    color: #666;
+  }
+
+  :global(.dark) .tab-btn:hover {
+    color: #aaa;
+  }
+
+  :global(.dark) .tab-btn.active {
+    color: var(--accent-dark);
+    border-bottom-color: var(--accent-dark);
+  }
+
+  .tab-count {
+    font-size: 0.65rem;
+    background: var(--accent-bg);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 8px;
+    font-weight: 600;
+  }
+
+  :global(.dark) .tab-count {
+    background: var(--accent-bg-strong);
+    color: var(--accent-dark);
+  }
+
+  .recent-list {
+    padding: 8px 12px 12px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+
+  .recent-list ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .recent-list li {
+    margin: 2px 0;
+  }
+
+  .recent-list li button {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    text-align: left;
+    padding: 4px 8px;
+    border-radius: 4px;
+    width: 100%;
     font-size: 0.85rem;
-    margin-bottom: 0;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #888;
+  }
+
+  .recent-list li button:hover {
+    background: var(--accent-bg);
+  }
+
+  .empty-hint {
+    color: #999;
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 12px 0;
   }
 
   .clear-btn {
     background: none;
     border: 1px solid #ddd;
-    color: #888;
+    color: #999;
     cursor: pointer;
     font-size: 0.75rem;
-    padding: 3px 10px;
+    padding: 5px 16px;
     border-radius: 4px;
     transition: all 0.2s;
+    margin-top: 12px;
   }
 
   .clear-btn:hover {
@@ -784,6 +936,7 @@
 
   :global(.dark) .clear-btn {
     border-color: #555;
+    color: #777;
   }
 
   :global(.dark) .clear-btn:hover {
@@ -792,29 +945,28 @@
     color: #f87171;
   }
 
-  .recent-files ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
+  .vault-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 8px !important;
   }
 
-  .recent-files li {
-    margin: 4px 0;
+  .vault-name {
+    font-weight: 600;
+    font-size: 0.9rem;
   }
 
-  .recent-files button {
-    background: none;
-    border: none;
-    color: #646cff;
-    cursor: pointer;
-    text-align: left;
-    padding: 4px 8px;
-    border-radius: 4px;
-    width: 100%;
+  .vault-path {
+    font-size: 0.75rem;
+    color: #999;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .recent-files button:hover {
-    background: rgba(100, 108, 255, 0.1);
+  :global(.dark) .vault-path {
+    color: #777;
   }
 
 </style>

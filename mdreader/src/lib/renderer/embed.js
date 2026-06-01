@@ -11,15 +11,18 @@ import DOMPurify from 'dompurify';
  * @returns {Promise<void>}
  */
 export async function processEmbeds(container, currentFilePath, embedChain = new Set()) {
-  const basePath = currentFilePath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+  const pathParts = currentFilePath.replace(/\\/g, '/').split('/');
+  pathParts.pop();
+  const basePath = pathParts.join('/') || '.';
   const embedElements = container.querySelectorAll('.embed-markdown');
 
   for (const embedEl of embedElements) {
     const embedPath = embedEl.getAttribute('data-embed-path');
     if (!embedPath) continue;
 
-    // Check for cycle using a per-branch copy
-    if (embedChain.has(embedPath)) {
+    // Normalize path for cycle detection
+    const normalizedPath = embedPath.replace(/\\/g, '/');
+    if (embedChain.has(normalizedPath)) {
       embedEl.innerHTML = `<span class="embed-error">Circular embed detected: ${embedPath}</span>`;
       continue;
     }
@@ -29,7 +32,7 @@ export async function processEmbeds(container, currentFilePath, embedChain = new
 
       // Branch-local cycle tracking
       const branchChain = new Set(embedChain);
-      branchChain.add(embedPath);
+      branchChain.add(normalizedPath);
 
       const result = await openFile(fullPath);
 
@@ -60,14 +63,14 @@ export async function processEmbeds(container, currentFilePath, embedChain = new
     const src = img.getAttribute('src');
     if (!src) continue;
 
-    // Skip already resolved paths
-    if (src.startsWith('asset://')) continue;
+    // Skip already resolved paths and remote URLs
+    if (src.startsWith('asset://') || src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) continue;
 
     // Handle absolute paths
     const isAbsolute = /^[a-zA-Z]:[/\\]|^\//.test(src);
-    const fullPath = isAbsolute
-      ? src.replace(/ /g, '%20')
-      : `${basePath}/${src}`.replace(/ /g, '%20');
+    const rawPath = isAbsolute ? src : `${basePath}/${src}`;
+    // Encode special characters for asset:// protocol
+    const fullPath = rawPath.split('/').map(encodeURIComponent).join('/');
 
     img.setAttribute('src', `asset://localhost/${fullPath}`);
   }
