@@ -18,29 +18,6 @@ export async function openFile(filePath) {
 
 /**
  * @param {string} filePath
- * @returns {Promise<{path: string}>}
- */
-export async function getFileInfo(filePath) {
-  try {
-    const path = await invoke('get_file_path', { path: filePath });
-    return { path };
-  } catch (/** @type {any} */ error) {
-    console.error('Failed to get file info:', error);
-    throw error;
-  }
-}
-
-/**
- * @param {string} filePath
- * @returns {string}
- */
-export function getFileName(filePath) {
-  const parts = filePath.replace(/\\/g, '/').split('/');
-  return parts[parts.length - 1];
-}
-
-/**
- * @param {string} filePath
  * @returns {string}
  */
 export function getDirectory(filePath) {
@@ -64,25 +41,23 @@ export async function readDirectory(path) {
 }
 
 /**
+ * Get the parent directory of a path.
+ * Alias for getDirectory — kept for backward compatibility.
  * @param {string} path
  * @returns {string}
  */
-export function getParentDirectory(path) {
-  const parts = path.replace(/\\/g, '/').split('/');
-  parts.pop();
-  return parts.join('/');
-}
+export const getParentDirectory = getDirectory;
 
 /**
- * @param {Window} _window
  * @param {string} filePath
  * @returns {Promise<void>}
  */
-export async function watchFile(_window, filePath) {
+export async function watchFile(filePath) {
   try {
     await invoke('watch_file', { path: filePath });
   } catch (/** @type {any} */ error) {
     console.error('Failed to watch file:', error);
+    throw error;
   }
 }
 
@@ -124,7 +99,7 @@ export async function searchFiles(root, query) {
  */
 export async function openInNewWindow(filePath) {
   try {
-    await invoke('open_in_new_window', { filePath });
+    await invoke('open_in_new_window', { path: filePath });
   } catch (/** @type {any} */ error) {
     console.error('Failed to open in new window:', error);
     throw error;

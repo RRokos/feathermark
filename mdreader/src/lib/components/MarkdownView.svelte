@@ -16,13 +16,14 @@
   let renderedHtml: string = '';
   let parsedContent: string = '';
   let mermaidProcessed: boolean = false;
+  let lastAppliedHtml: string = '';
 
   // Configure DOMPurify to allow our custom elements and attributes
   const purifyConfig = {
     ADD_TAGS: ['span', 'div', 'sup', 'ol', 'li', 'hr', 'svg', 'path', 'g', 'rect', 'text', 'line', 'circle', 'polygon', 'polyline', 'marker', 'defs', 'clipPath', 'foreignObject', 'tspan'],
     ADD_ATTR: ['class', 'data-embed-path', 'data-footnote-id', 'id', 'style', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'transform', 'x', 'y', 'width', 'height', 'rx', 'ry', 'cx', 'cy', 'r', 'points', 'marker-end', 'marker-start', 'text-anchor', 'dominant-baseline', 'font-size', 'font-family', 'clip-path', 'dx', 'dy'],
     ALLOW_DATA_ATTR: true,
-    ALLOW_UNKNOWN_PROTOCOLS: true
+    ALLOW_UNKNOWN_PROTOCOLS: false
   };
 
   let frontmatterHtml: string = '';
@@ -49,7 +50,8 @@
   const MERMAID_FIT_KEY = 'mdreader_mermaid_fit';
 
   afterUpdate(async (): Promise<void> => {
-    if (container && renderedHtml) {
+    if (container && renderedHtml && renderedHtml !== lastAppliedHtml) {
+      lastAppliedHtml = renderedHtml;
       container.innerHTML = renderedHtml;
 
       // Process math using DOM-based approach (safe against HTML attribute corruption)
@@ -146,6 +148,15 @@
       if (heading instanceof Element) {
         heading.scrollIntoView({ behavior: 'smooth' });
       }
+    } else if (href.startsWith('http://') || href.startsWith('https://')) {
+      // Open external links in system browser
+      event.preventDefault();
+      import('@tauri-apps/plugin-opener').then(({ openUrl }) => {
+        openUrl(href);
+      }).catch(() => {
+        // Fallback: try window.open
+        window.open(href, '_blank');
+      });
     } else {
       const target = event.target as HTMLElement;
       if (target.closest('.footnote-ref')) {

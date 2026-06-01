@@ -1,5 +1,6 @@
 use log::{info, error};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -39,7 +40,8 @@ pub struct SearchResult {
 
 pub struct AppState {
     pub pending_file_path: Mutex<Option<String>>,
-    pub watcher_stop_signal: Arc<Mutex<Option<Arc<AtomicBool>>>>,
+    /// Per-window watcher stop signals, keyed by window label
+    pub watcher_stop_signals: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub window_counter: AtomicU64,
 }
 
@@ -47,7 +49,7 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             pending_file_path: Mutex::new(None),
-            watcher_stop_signal: Arc::new(Mutex::new(None)),
+            watcher_stop_signals: Mutex::new(HashMap::new()),
             window_counter: AtomicU64::new(0),
         }
     }
@@ -60,8 +62,10 @@ fn read_file(path: String) -> Result<FileResult, String> {
     let path_buf = if PathBuf::from(&path).is_absolute() {
         PathBuf::from(&path)
     } else {
-        let cwd = std::env::current_dir().unwrap_or_default();
-        cwd.join(&path)
+        match std::env::current_dir() {
+            Ok(cwd) => cwd.join(&path),
+            Err(e) => return Err(format!("Failed to get current directory: {}", e)),
+        }
     };
 
     if !path_buf.exists() {
@@ -149,38 +153,41 @@ fn read_directory(path: String) -> Result<Vec<DirEntry>, String> {
 
 #[tauri::command]
 fn get_pending_file_path(state: State<'_, AppState>) -> Option<String> {
-    let mut pending = state.pending_file_path.lock().unwrap();
+    let mut pending = state.pending_file_path.lock().unwrap_or_else(|e| e.into_inner());
     pending.take()
 }
 
-#[tauri::command]
-fn get_file_path(path: String) -> Result<String, String> {
-    let path_buf = PathBuf::from(&path);
-    match path_buf.canonicalize() {
-        Ok(p) => Ok(p.to_string_lossy().to_string()),
-        Err(e) => Err(format!("Failed to get path: {}", e))
+const MAX_DIR_DEPTH: usize = 20;
+
+fn collect_markdown_files(dir: &PathBuf, results: &mut Vec<MarkdownFileEntry>, depth: usize) {
+    if depth > MAX_DIR_DEPTH {
+        return;
     }
-}
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
 
-fn collect_markdown_files(dir: &PathBuf, results: &mut Vec<MarkdownFileEntry>) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
+        // Skip hidden
+        if name.starts_with('.') {
+            continue;
+        }
 
-            // Skip hidden
-            if name.starts_with('.') {
-                continue;
-            }
+        // Skip symlinks to prevent loops
+        if path.is_symlink() {
+            continue;
+        }
 
-            if path.is_dir() {
-                collect_markdown_files(&path, results);
-            } else if name.ends_with(".md") || name.ends_with(".markdown") {
-                results.push(MarkdownFileEntry {
-                    name,
-                    path: path.to_string_lossy().to_string(),
-                });
-            }
+        if path.is_dir() {
+            collect_markdown_files(&path, results, depth + 1);
+        } else if name.ends_with(".md") || name.ends_with(".markdown") {
+            results.push(MarkdownFileEntry {
+                name,
+                path: path.to_string_lossy().to_string(),
+            });
         }
     }
 }
@@ -195,7 +202,7 @@ fn list_markdown_files(root: String) -> Result<Vec<MarkdownFileEntry>, String> {
     }
 
     let mut results: Vec<MarkdownFileEntry> = Vec::new();
-    collect_markdown_files(&root_path, &mut results);
+    collect_markdown_files(&root_path, &mut results, 0);
 
     // Sort alphabetically by name
     results.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -216,7 +223,7 @@ fn search_files(root: String, query: String) -> Result<Vec<SearchResult>, String
     let query_lower = query.to_lowercase();
     let mut results: Vec<SearchResult> = Vec::new();
     let mut md_files: Vec<MarkdownFileEntry> = Vec::new();
-    collect_markdown_files(&root_path, &mut md_files);
+    collect_markdown_files(&root_path, &mut md_files, 0);
 
     for file_entry in &md_files {
         if results.len() >= 100 {
@@ -246,26 +253,24 @@ fn search_files(root: String, query: String) -> Result<Vec<SearchResult>, String
 
 #[tauri::command]
 fn watch_file(window: tauri::Window, path: String, state: State<'_, AppState>) -> Result<(), String> {
-    info!("Starting to watch file: {}", path);
+    info!("Starting to watch file: {} (window: {})", path, window.label());
 
     let path_buf = PathBuf::from(&path);
-    if !path_buf.exists() {
-        return Err(format!("File not found: {}", path));
-    }
+    let window_label = window.label().to_string();
 
-    // Stop previous watcher if any
+    // Stop previous watcher for THIS window only
     {
-        let mut signal_guard = state.watcher_stop_signal.lock().unwrap();
-        if let Some(old_signal) = signal_guard.take() {
-            old_signal.store(true, Ordering::Relaxed);
+        let mut signals = state.watcher_stop_signals.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(old_signal) = signals.remove(&window_label) {
+            old_signal.store(true, Ordering::Release);
         }
     }
 
     // Create new stop signal for the new watcher
     let stop_signal = Arc::new(AtomicBool::new(false));
     {
-        let mut signal_guard = state.watcher_stop_signal.lock().unwrap();
-        *signal_guard = Some(Arc::clone(&stop_signal));
+        let mut signals = state.watcher_stop_signals.lock().unwrap_or_else(|e| e.into_inner());
+        signals.insert(window_label.clone(), Arc::clone(&stop_signal));
     }
 
     let window_clone = window.clone();
@@ -292,11 +297,11 @@ fn watch_file(window: tauri::Window, path: String, state: State<'_, AppState>) -
                 }
 
                 // Poll until stop signal is set
-                while !stop_signal.load(Ordering::Relaxed) {
+                while !stop_signal.load(Ordering::Acquire) {
                     thread::sleep(Duration::from_millis(500));
                 }
 
-                info!("Watcher stopped for: {}", path_buf.display());
+                info!("Watcher stopped for: {} (window: {})", path_buf.display(), window_label);
             }
             Err(e) => {
                 error!("Failed to create watcher: {:?}", e);
@@ -305,6 +310,30 @@ fn watch_file(window: tauri::Window, path: String, state: State<'_, AppState>) -
     });
 
     Ok(())
+}
+
+/// Validate an editor command string to prevent command injection.
+///
+/// Allows:
+/// - Simple commands on PATH (e.g. `code`, `notepad++`)
+/// - Full paths (e.g. `C:\Program Files\VS Code\Code.exe`)
+///
+/// Rejects:
+/// - Shell metacharacters: `| & ; ` ( ) { } < > $ " ' \`
+/// - Control characters: newline, tab, carriage return
+/// - Strings longer than 260 characters (MAX_PATH on Windows)
+const MAX_EDITOR_LEN: usize = 260;
+
+fn is_safe_editor(editor: &str) -> bool {
+    if editor.len() > MAX_EDITOR_LEN {
+        return false;
+    }
+    // Block shell metacharacters that could enable command injection
+    const BLOCKED: &[char] = &[
+        '|', '&', ';', '`', '(', ')', '{', '}', '<', '>',
+        '$', '"', '\'', '\\', '\n', '\r', '\t',
+    ];
+    !editor.chars().any(|c| BLOCKED.contains(&c))
 }
 
 #[tauri::command]
@@ -325,6 +354,11 @@ fn open_in_editor(path: String, editor: String) -> Result<(), String> {
         return Ok(());
     }
 
+    // Validate editor string to prevent command injection
+    if !is_safe_editor(&editor) {
+        return Err("Editor path contains invalid characters".to_string());
+    }
+
     // Try the editor command directly first (works for full paths and PATH commands)
     if let Ok(_) = StdCommand::new(&editor).arg(&path).spawn() {
         return Ok(());
@@ -332,11 +366,14 @@ fn open_in_editor(path: String, editor: String) -> Result<(), String> {
 
     // If that failed, try common installation paths on Windows
     let candidates: Vec<String> = match editor.to_lowercase().as_str() {
-        "code" | "vscode" => vec![
-            format!("{}\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
-                    std::env::var("USERPROFILE").unwrap_or_default()),
-            "C:\\Program Files\\Microsoft VS Code\\Code.exe".to_string(),
-        ],
+        "code" | "vscode" => {
+            let mut paths = vec![];
+            if let Ok(profile) = std::env::var("USERPROFILE") {
+                paths.push(format!("{}\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe", profile));
+            }
+            paths.push("C:\\Program Files\\Microsoft VS Code\\Code.exe".to_string());
+            paths
+        },
         "notepad++" => vec![
             "C:\\Program Files\\Notepad++\\notepad++.exe".to_string(),
             "C:\\Program Files (x86)\\Notepad++\\notepad++.exe".to_string(),
@@ -379,9 +416,26 @@ fn create_file_window(app: &tauri::AppHandle, file_path: &str) -> Result<(), Str
     Ok(())
 }
 
+fn create_welcome_window(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let counter = state.window_counter.fetch_add(1, Ordering::Relaxed);
+    let label = format!("welcome-{}", counter);
+
+    WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/".into()))
+        .title("Feathermark")
+        .inner_size(1200.0, 800.0)
+        .min_inner_size(800.0, 600.0)
+        .center()
+        .build()
+        .map_err(|e| format!("Failed to create window: {}", e))?;
+
+    info!("Created new welcome window '{}'", label);
+    Ok(())
+}
+
 #[tauri::command]
-fn open_in_new_window(app: tauri::AppHandle, file_path: String) -> Result<(), String> {
-    create_file_window(&app, &file_path)
+fn open_in_new_window(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    create_file_window(&app, &path)
 }
 
 pub fn run() {
@@ -402,9 +456,14 @@ pub fn run() {
                     }
                 }
             } else {
-                // No file — focus existing main window
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.set_focus();
+                // No file — open a new independent welcome window
+                info!("No file argument, creating new welcome window");
+                if let Err(e) = create_welcome_window(app) {
+                    error!("Failed to create welcome window: {}", e);
+                    // Fallback: focus existing main window
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.set_focus();
+                    }
                 }
             }
         }))
@@ -422,13 +481,13 @@ pub fn run() {
                 info!("Storing pending file path: {}", file_path);
 
                 let state = app.state::<AppState>();
-                let mut pending = state.pending_file_path.lock().unwrap();
+                let mut pending = state.pending_file_path.lock().unwrap_or_else(|e| e.into_inner());
                 *pending = Some(file_path);
             }
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![read_file, read_directory, get_file_path, get_pending_file_path, watch_file, list_markdown_files, search_files, open_in_editor, open_in_new_window])
+        .invoke_handler(tauri::generate_handler![read_file, read_directory, get_pending_file_path, watch_file, list_markdown_files, search_files, open_in_editor, open_in_new_window])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

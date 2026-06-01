@@ -48,6 +48,18 @@ const TAG_REGEX = /(?:^|\s)#([\w\-\/]+)/g;
 // Embed regex: ![[file]] or !![[note.md]]
 const EMBED_REGEX = /!\[\[([^\]]+)\]\]/g;
 
+/** Escape HTML special characters to prevent injection via filenames
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 /**
  * @param {string} content
  * @param {Set<string>} embedChain
@@ -55,21 +67,24 @@ const EMBED_REGEX = /!\[\[([^\]]+)\]\]/g;
  */
 export function preprocessEmbeds(content, embedChain = new Set()) {
   return content.replace(EMBED_REGEX, (match, embedPath) => {
-    // Cycle detection
-    if (embedChain.has(embedPath)) {
-      return `<div class="embed-error">Circular embed detected: ${embedPath}</div>`;
+    // Normalize path for cycle detection
+    const normalizedPath = embedPath.replace(/\\/g, '/');
+    if (embedChain.has(normalizedPath)) {
+      return `<div class="embed-error">Circular embed detected: ${escapeHtml(embedPath)}</div>`;
     }
 
     // Mark this file as being embedded
-    embedChain.add(embedPath);
+    embedChain.add(normalizedPath);
+
+    const safePath = escapeHtml(embedPath);
 
     // Determine if it's an image or markdown
     if (embedPath.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
       // Image embed
-      return `<div class="embed-image"><img src="${embedPath}" alt="${embedPath}" /></div>`;
+      return `<div class="embed-image"><img src="${safePath}" alt="${safePath}" /></div>`;
     } else {
       // Markdown embed placeholder - will be resolved later
-      return `<div class="embed-markdown" data-embed-path="${embedPath}"><span class="embed-loading">Loading ${embedPath}...</span></div>`;
+      return `<div class="embed-markdown" data-embed-path="${safePath}"><span class="embed-loading">Loading ${safePath}...</span></div>`;
     }
   });
 }
@@ -90,18 +105,26 @@ export function preprocessTags(content) {
       result.push(line);
       continue;
     }
-    // Skip code blocks and heading lines
-    if (inCodeBlock || /^#{1,6}\s/.test(line)) {
+    // Skip code blocks
+    if (inCodeBlock) {
       result.push(line);
       continue;
     }
-    result.push(line.replace(TAG_REGEX, (match, tag) => {
-      // Skip common programming tokens like #include, #define, #ifdef, etc.
-      if (/^(include|define|ifdef|ifndef|endif|pragma|undef|if|else|elif|error|warning|line)$/i.test(tag)) {
-        return match;
-      }
-      return `${match.slice(0, -tag.length - 1)}<span class="tag">#${tag}</span>`;
-    }));
+    // Skip tags inside inline code (backtick-delimited segments)
+    // Split line by inline code spans, only process non-code parts
+    const parts = line.split(/(`[^`]+`)/);
+    const processed = parts.map((part, idx) => {
+      // Odd indices are inline code spans — pass through unchanged
+      if (idx % 2 === 1) return part;
+      return part.replace(TAG_REGEX, (match, tag) => {
+        // Skip common programming tokens like #include, #define, #ifdef, etc.
+        if (/^(include|define|ifdef|ifndef|endif|pragma|undef|if|else|elif|error|warning|line)$/i.test(tag)) {
+          return match;
+        }
+        return `${match.slice(0, -tag.length - 1)}<span class="tag">#${tag}</span>`;
+      });
+    });
+    result.push(processed.join(''));
   }
 
   return result.join('\n');

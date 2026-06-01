@@ -63,12 +63,16 @@
    * @param {string} path
    * @returns {Promise<void>}
    */
+  let navigateSeq = 0;
+
   async function navigateTo(path: string): Promise<void> {
+    const seq = ++navigateSeq;
     loading = true;
     error = null;
 
     try {
       const result = await readDirectory(path);
+      if (seq !== navigateSeq) return; // stale navigation, discard
       entries = result;
 
       if (historyIndex < pathHistory.length - 1) {
@@ -77,10 +81,11 @@
       pathHistory = [...pathHistory, path];
       historyIndex = pathHistory.length - 1;
     } catch (err) {
+      if (seq !== navigateSeq) return;
       error = err instanceof Error ? err.message : String(err);
       entries = [];
     } finally {
-      loading = false;
+      if (seq === navigateSeq) loading = false;
     }
   }
 
@@ -154,12 +159,15 @@
       historyIndex--;
       const target = pathHistory[historyIndex];
       if (target) {
+        const seq = ++navigateSeq;
         loading = true;
         error = null;
         readDirectory(target).then((result) => {
+          if (seq !== navigateSeq) return;
           entries = result;
           loading = false;
         }).catch((err) => {
+          if (seq !== navigateSeq) return;
           error = err instanceof Error ? err.message : String(err);
           entries = [];
           loading = false;
@@ -173,12 +181,15 @@
       historyIndex++;
       const target = pathHistory[historyIndex];
       if (target) {
+        const seq = ++navigateSeq;
         loading = true;
         error = null;
         readDirectory(target).then((result) => {
+          if (seq !== navigateSeq) return;
           entries = result;
           loading = false;
         }).catch((err) => {
+          if (seq !== navigateSeq) return;
           error = err instanceof Error ? err.message : String(err);
           entries = [];
           loading = false;
