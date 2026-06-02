@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { open } from '@tauri-apps/plugin-dialog';
@@ -87,7 +87,6 @@
       }
 
       fileModifiedExternally = false;
-      addToRecentFiles(result.path);
       if (scrollAnchor) scrollToAnchor(scrollAnchor);
 
       // Watch file separately — failure should not block display
@@ -122,7 +121,6 @@
           }
 
           fileModifiedExternally = false;
-          addToRecentFiles(result2.path);
           removeRecentFile(absolutePath);
           if (scrollAnchor) scrollToAnchor(scrollAnchor);
 
@@ -185,13 +183,12 @@
     }
   }
 
-  function openVault(vaultPath: string): void {
+  async function openVault(vaultPath: string): Promise<void> {
     sidebarRoot = '';
-    setTimeout(() => {
-      sidebarRoot = vaultPath;
-      indexVaultFiles(sidebarRoot).catch(err => console.error('Failed to index vault files:', err));
-      addToRecentVaults(vaultPath);
-    }, 50);
+    await tick();
+    sidebarRoot = vaultPath;
+    indexVaultFiles(sidebarRoot).catch(err => console.error('Failed to index vault files:', err));
+    addToRecentVaults(vaultPath);
   }
 
   /** Cache of all .md files in the vault for wikilink resolution */

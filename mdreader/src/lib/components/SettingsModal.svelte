@@ -61,18 +61,18 @@
   }
 
   function save(): void {
-    const value = useCustom ? customPath.trim() : selectedPreset;
-    if (value) {
-      localStorage.setItem(EDITOR_KEY, value);
-    } else {
-      localStorage.removeItem(EDITOR_KEY);
-    }
+    try {
+      const value = useCustom ? customPath.trim() : selectedPreset;
+      if (value) {
+        localStorage.setItem(EDITOR_KEY, value);
+      } else {
+        localStorage.removeItem(EDITOR_KEY);
+      }
+      localStorage.setItem(TABS_KEY, String(enableTabs));
+      localStorage.setItem(MERMAID_FIT_KEY, String(mermaidFitWidth));
+    } catch {}
 
-    localStorage.setItem(TABS_KEY, String(enableTabs));
     tabsEnabled.set(enableTabs);
-
-    localStorage.setItem(MERMAID_FIT_KEY, String(mermaidFitWidth));
-
     accentColor.set(selectedAccent);
 
     dispatch('settingsChanged');

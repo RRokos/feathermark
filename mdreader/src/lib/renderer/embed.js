@@ -3,6 +3,14 @@ import { renderMathInDOM } from '$lib/renderer/katex.js';
 import { processMermaidBlocks } from '$lib/renderer/mermaid.js';
 import DOMPurify from 'dompurify';
 
+/** Escape HTML special characters
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 const MAX_EMBED_DEPTH = 10;
 
 /**
@@ -28,7 +36,7 @@ export async function processEmbeds(container, currentFilePath, embedChain = new
     // Normalize path for cycle detection
     const normalizedPath = embedPath.replace(/\\/g, '/');
     if (embedChain.has(normalizedPath)) {
-      embedEl.innerHTML = `<span class="embed-error">Circular embed detected: ${embedPath}</span>`;
+      embedEl.innerHTML = `<span class="embed-error">Circular embed detected: ${escapeHtml(embedPath)}</span>`;
       continue;
     }
 
@@ -58,7 +66,7 @@ export async function processEmbeds(container, currentFilePath, embedChain = new
       // Recursively process nested embeds
       await processEmbeds(/** @type {HTMLDivElement} */ (embedEl), fullPath, branchChain, depth + 1);
     } catch (err) {
-      embedEl.innerHTML = `<span class="embed-error">Failed to load: ${embedPath}</span>`;
+      embedEl.innerHTML = `<span class="embed-error">Failed to load: ${escapeHtml(embedPath)}</span>`;
     }
   }
 

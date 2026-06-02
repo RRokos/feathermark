@@ -68,7 +68,8 @@ export async function watchFile(filePath) {
  * @returns {Promise<void>}
  */
 export async function openInEditor(filePath) {
-  const saved = localStorage.getItem(EDITOR_KEY) || '';
+  let saved = '';
+  try { saved = localStorage.getItem(EDITOR_KEY) || ''; } catch {}
   try {
     await invoke('open_in_editor', { path: filePath, editor: saved });
   } catch (/** @type {any} */ error) {

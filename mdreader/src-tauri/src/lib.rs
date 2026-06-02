@@ -501,5 +501,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![read_file, read_directory, get_pending_file_path, watch_file, list_markdown_files, search_files, open_in_editor, open_in_new_window])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| {
+            error!("Failed to run Tauri application: {}", e);
+            std::process::exit(1);
+        });
 }

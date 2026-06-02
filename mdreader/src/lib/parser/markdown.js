@@ -65,7 +65,8 @@ function escapeHtml(str) {
  * @param {Set<string>} embedChain
  * @returns {string}
  */
-export function preprocessEmbeds(content, embedChain = new Set()) {
+export function preprocessEmbeds(content, embedChain) {
+  if (!embedChain) embedChain = new Set();
   return content.replace(EMBED_REGEX, (match, embedPath) => {
     // Normalize path for cycle detection
     const normalizedPath = embedPath.replace(/\\/g, '/');
@@ -324,7 +325,8 @@ export function preprocessFootnotes(content) {
     const processedLine = line.replace(FOOTNOTE_REF_REGEX, (match, id) => {
       if (footnoteDefs.has(id)) {
         footnoteRefs.set(id, true);
-        return `<sup class="footnote-ref" data-footnote-id="${id}">[${id}]</sup>`;
+        const safeId = escapeHtml(id);
+        return `<sup class="footnote-ref" data-footnote-id="${safeId}">[${safeId}]</sup>`;
       }
       return match;
     });
@@ -337,7 +339,8 @@ export function preprocessFootnotes(content) {
   for (const [id] of footnoteRefs) {
     const def = footnoteDefs.get(id);
     if (def) {
-      footnotes.push(`<li id="footnote-${id}"><sup>[${id}]</sup> ${def}</li>`);
+      const safeId = escapeHtml(id);
+      footnotes.push(`<li id="footnote-${safeId}"><sup>[${safeId}]</sup> ${escapeHtml(def)}</li>`);
     }
   }
 
@@ -464,7 +467,7 @@ function escapeMathHtml(html) {
  */
 export function renderMarkdown(content) {
   let processed = preprocessCallouts(content);
-  processed = preprocessEmbeds(processed);
+  processed = preprocessEmbeds(processed, new Set());
   processed = preprocessWikilinks(processed);
   processed = preprocessFootnotes(processed);
   processed = preprocessTags(processed);
