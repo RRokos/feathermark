@@ -355,6 +355,10 @@ fn open_in_editor(path: String, editor: String) -> Result<(), String> {
 
     if editor.is_empty() {
         // No editor specified — use system default via cmd /c start
+        // Sanitize path: reject shell metacharacters that could enable injection
+        if path.chars().any(|c| matches!(c, '&' | '|' | ';' | '<' | '>' | '^' | '`' | '$' | '(' | ')' | '{' | '}' | '\n' | '\r')) {
+            return Err("File path contains characters that cannot be opened with system default".to_string());
+        }
         StdCommand::new("cmd")
             .args(["/c", "start", "", &path])
             .spawn()

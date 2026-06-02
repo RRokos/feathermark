@@ -17,6 +17,7 @@
   let parsedContent: string = '';
   let mermaidProcessed: boolean = false;
   let lastAppliedHtml: string = '';
+  let renderGeneration: number = 0;
 
   // Configure DOMPurify to allow our custom elements and attributes
   const purifyConfig = {
@@ -45,6 +46,7 @@
     const rawHtml = renderMarkdown(parsedContent);
     renderedHtml = frontmatterHtml + DOMPurify.sanitize(rawHtml, purifyConfig);
     mermaidProcessed = false;
+    renderGeneration++;
   }
 
   const MERMAID_FIT_KEY = 'mdreader_mermaid_fit';
@@ -52,6 +54,7 @@
   afterUpdate(async (): Promise<void> => {
     if (container && renderedHtml && renderedHtml !== lastAppliedHtml) {
       lastAppliedHtml = renderedHtml;
+      const gen = renderGeneration;
       container.innerHTML = renderedHtml;
 
       // Process math using DOM-based approach (safe against HTML attribute corruption)
@@ -61,7 +64,7 @@
         mermaidProcessed = true;
         await tick();
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        if (container) {
+        if (container && gen === renderGeneration) {
           await processMermaidBlocks(container, isDark);
 
           // Apply sizing based on setting
@@ -87,8 +90,10 @@
         }
       }
 
-      // Process embeds
-      await processEmbeds(container, filePath);
+      // Process embeds (skip if content changed during mermaid processing)
+      if (gen === renderGeneration && container) {
+        await processEmbeds(container, filePath);
+      }
     }
   });
 
