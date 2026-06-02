@@ -158,6 +158,7 @@ fn get_pending_file_path(state: State<'_, AppState>) -> Option<String> {
 }
 
 const MAX_DIR_DEPTH: usize = 20;
+const MAX_SEARCH_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
 
 fn collect_markdown_files(dir: &PathBuf, results: &mut Vec<MarkdownFileEntry>, depth: usize) {
     if depth > MAX_DIR_DEPTH {
@@ -228,6 +229,13 @@ fn search_files(root: String, query: String) -> Result<Vec<SearchResult>, String
     for file_entry in &md_files {
         if results.len() >= 100 {
             break;
+        }
+
+        // Skip files larger than limit to prevent memory spikes
+        if let Ok(meta) = fs::metadata(&file_entry.path) {
+            if meta.len() > MAX_SEARCH_FILE_SIZE {
+                continue;
+            }
         }
 
         if let Ok(content) = fs::read_to_string(&file_entry.path) {

@@ -3,14 +3,19 @@ import { renderMathInDOM } from '$lib/renderer/katex.js';
 import { processMermaidBlocks } from '$lib/renderer/mermaid.js';
 import DOMPurify from 'dompurify';
 
+const MAX_EMBED_DEPTH = 10;
+
 /**
  * Process embed blocks in the container
  * @param {HTMLDivElement} container
  * @param {string} currentFilePath
  * @param {Set<string>} embedChain
+ * @param {number} depth
  * @returns {Promise<void>}
  */
-export async function processEmbeds(container, currentFilePath, embedChain = new Set()) {
+export async function processEmbeds(container, currentFilePath, embedChain = new Set(), depth = 0) {
+  if (depth > MAX_EMBED_DEPTH) return;
+
   const pathParts = currentFilePath.replace(/\\/g, '/').split('/');
   pathParts.pop();
   const basePath = pathParts.join('/') || '.';
@@ -51,7 +56,7 @@ export async function processEmbeds(container, currentFilePath, embedChain = new
       await processMermaidBlocks(/** @type {HTMLElement} */ (embedEl));
 
       // Recursively process nested embeds
-      await processEmbeds(/** @type {HTMLDivElement} */ (embedEl), fullPath, branchChain);
+      await processEmbeds(/** @type {HTMLDivElement} */ (embedEl), fullPath, branchChain, depth + 1);
     } catch (err) {
       embedEl.innerHTML = `<span class="embed-error">Failed to load: ${embedPath}</span>`;
     }

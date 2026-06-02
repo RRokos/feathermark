@@ -12,7 +12,7 @@ export function renderKatex(latex, options = {}) {
     throwOnError: false,
     errorColor: '#cc0000',
     strict: false,
-    trust: true,
+    trust: false,
     ...options
   };
 
@@ -87,7 +87,7 @@ export function renderMathInDOM(container) {
           displayMode: isBlock,
           throwOnError: false,
           strict: false,
-          trust: true
+          trust: false
         });
         const span = document.createElement(isBlock ? 'div' : 'span');
         if (isBlock) span.className = 'katex-display';

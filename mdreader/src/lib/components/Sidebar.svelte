@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { readDirectory, getParentDirectory, openInEditor, searchFiles, openInNewWindow } from '$lib/services/file.js';
   import { createEventDispatcher } from 'svelte';
 
@@ -270,6 +270,11 @@
       loading = false;
     });
   }
+
+  // Clean up search debounce timer on component destroy
+  onDestroy(() => {
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  });
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->

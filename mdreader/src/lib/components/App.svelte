@@ -56,8 +56,11 @@
     }
   }
 
+  let loadFileSeq = 0;
+
   async function loadFile(filePath: string, anchor: string | null = null): Promise<void> {
     if (!filePath) return;
+    const seq = ++loadFileSeq;
     let cleanPath: string = filePath;
     let scrollAnchor: string | null = anchor;
 
@@ -75,6 +78,7 @@
 
     try {
       const result: { content: string; path: string } = await openFile(absolutePath);
+      if (seq !== loadFileSeq) return; // stale load, discard
 
       // Always update documentState so status stays in sync
       setDocument(result.path, result.content);
@@ -294,6 +298,20 @@
 
   onMount((): (() => void) => {
     let cleanups: Array<() => void> = [];
+
+    // Global error boundary — prevent white screen on unhandled exceptions
+    const errorHandler = (event: ErrorEvent) => {
+      console.error('[global] Unhandled error:', event.error);
+      event.preventDefault();
+    };
+    const rejectionHandler = (event: PromiseRejectionEvent) => {
+      console.error('[global] Unhandled rejection:', event.reason);
+      event.preventDefault();
+    };
+    window.addEventListener('error', errorHandler);
+    window.addEventListener('unhandledrejection', rejectionHandler);
+    cleanups.push(() => window.removeEventListener('error', errorHandler));
+    cleanups.push(() => window.removeEventListener('unhandledrejection', rejectionHandler));
 
     // Check if this window was opened with a ?file= query parameter (multi-window)
     const urlParams = new URLSearchParams(window.location.search);
