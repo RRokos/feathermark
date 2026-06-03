@@ -134,6 +134,7 @@ mdreader/
   → shieldMath()              保护 $...$ / $$...$$ 不被 markdown-it 转义
   → md.render()             markdown-it + task-lists 插件
   → unshieldMath()           还原数学公式
+  → escapeMathHtml()        转义数学中的 < > & 防止 DOMPurify 误删
   → DOMPurify.sanitize()    HTML 消毒（SVG 白名单）
   → container.innerHTML     挂载到 DOM
   → renderMathInDOM()       KaTeX DOM 遍历（跳过 code/pre/svg）
@@ -175,4 +176,4 @@ npm run tauri build
 - 编辑器路径 → 黑名单校验（shell 元字符 + 引号 + 控制字符）
 - `cmd /c start` 路径 → 拒绝引号、shell 元字符
 - `initialization_script` 文件路径 → `serde_json::to_string` 安全编码
-- inline math regex → 要求 `$` 后非空格（防止货币值误解析）
+- inline math `escapeMathHtml()` → 转义 `$...$` 中的 `<` `>` `&`，防止 DOMPurify 误删

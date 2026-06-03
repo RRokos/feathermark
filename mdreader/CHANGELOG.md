@@ -41,7 +41,8 @@
 - Mermaid 初始化失败后永久不可用 → initPromise 成功/失败后均清空
 - Mermaid 主题切换失败 → initPromise 成功后重置
 - Embed 内 wikilink 路径解析错误 → 使用 vault root
-- inline math 货币值误解析 → regex 要求 `$` 后非空格
+- **Wikilink 子路径编码错误** → `encodeURIComponent` 只编码路径段，保留 `/`
+- **表格/Callout 中数学公式渲染失败** → 恢复 `escapeMathHtml` 管线，inline regex 恢复原始 `.+?`
 
 **状态管理**
 - Wikilink fallback 竞态 → 加 seq 检查
