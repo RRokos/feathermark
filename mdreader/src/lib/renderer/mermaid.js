@@ -1,4 +1,5 @@
 import mermaid from 'mermaid';
+import DOMPurify from 'dompurify';
 
 let initialized = false;
 let currentTheme = 'default';
@@ -27,9 +28,9 @@ async function initializeMermaid(isDark = false) {
       });
       initialized = true;
       currentTheme = theme;
+      initPromise = null;
     } catch (e) {
       console.error('Mermaid init error:', e);
-      // Allow retry on next call
       initPromise = null;
     }
   })();
@@ -65,7 +66,7 @@ export async function processMermaidBlocks(container, isDark = false) {
 
         const div = document.createElement('div');
         div.className = 'mermaid-diagram';
-        div.innerHTML = svg;
+        div.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true }, ADD_TAGS: ['foreignObject'] });
 
         // Mermaid 11 outputs SVG with width="100%" by default.
         // Extract the actual width from viewBox so we can restore original size when needed.

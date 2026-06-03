@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use std::thread;
 use notify::{Watcher, RecommendedWatcher, RecursiveMode, Event, Config};
-use tauri::{Manager, Emitter, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, Emitter, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use std::process::Command as StdCommand;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -159,9 +159,10 @@ fn get_pending_file_path(state: State<'_, AppState>) -> Option<String> {
 
 const MAX_DIR_DEPTH: usize = 20;
 const MAX_SEARCH_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+const MAX_COLLECTED_FILES: usize = 10_000;
 
 fn collect_markdown_files(dir: &PathBuf, results: &mut Vec<MarkdownFileEntry>, depth: usize) {
-    if depth > MAX_DIR_DEPTH {
+    if depth > MAX_DIR_DEPTH || results.len() >= MAX_COLLECTED_FILES {
         return;
     }
     let entries = match fs::read_dir(dir) {
@@ -336,10 +337,9 @@ fn is_safe_editor(editor: &str) -> bool {
     if editor.len() > MAX_EDITOR_LEN {
         return false;
     }
-    // Block shell metacharacters that could enable command injection
     const BLOCKED: &[char] = &[
         '|', '&', ';', '`', '(', ')', '{', '}', '<', '>',
-        '$', '"', '\'', '\\', '\n', '\r', '\t',
+        '$', '"', '\'', '\n', '\r', '\t',
     ];
     !editor.chars().any(|c| BLOCKED.contains(&c))
 }
@@ -356,7 +356,7 @@ fn open_in_editor(path: String, editor: String) -> Result<(), String> {
     if editor.is_empty() {
         // No editor specified — use system default via cmd /c start
         // Sanitize path: reject shell metacharacters that could enable injection
-        if path.chars().any(|c| matches!(c, '&' | '|' | ';' | '<' | '>' | '^' | '`' | '$' | '(' | ')' | '{' | '}' | '\n' | '\r')) {
+        if path.chars().any(|c| matches!(c, '&' | '|' | ';' | '<' | '>' | '^' | '`' | '$' | '(' | ')' | '{' | '}' | '"' | '\'' | '\n' | '\r')) {
             return Err("File path contains characters that cannot be opened with system default".to_string());
         }
         StdCommand::new("cmd")
@@ -408,15 +408,29 @@ fn create_file_window(app: &tauri::AppHandle, file_path: &str) -> Result<(), Str
     let state = app.state::<AppState>();
     let counter = state.window_counter.fetch_add(1, Ordering::Relaxed);
     let label = format!("file-{}", counter);
-    let encoded = urlencoding::encode(file_path);
-    let url = format!("/?file={}", encoded);
 
     let file_name = std::path::Path::new(file_path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "Untitled".to_string());
 
-    WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+    let json_path = serde_json::to_string(file_path).unwrap_or_else(|_| "\"\"".to_string());
+    let init_script = format!("window.__FEATHERMARK_FILE__ = {};", json_path);
+
+    // Get the actual URL from the main window — WebviewUrl::App doesn't work for dynamic windows
+    let url = if let Some(main_win) = app.get_webview_window("main") {
+        if let Ok(main_url) = main_win.url() {
+            info!("Using main window URL for new window: {}", main_url);
+            WebviewUrl::External(main_url)
+        } else {
+            WebviewUrl::App("index.html".into())
+        }
+    } else {
+        WebviewUrl::App("index.html".into())
+    };
+
+    WebviewWindowBuilder::new(app, &label, url)
+        .initialization_script(&init_script)
         .title(format!("Feathermark — {}", file_name))
         .inner_size(1200.0, 800.0)
         .min_inner_size(800.0, 600.0)
@@ -433,7 +447,18 @@ fn create_welcome_window(app: &tauri::AppHandle) -> Result<(), String> {
     let counter = state.window_counter.fetch_add(1, Ordering::Relaxed);
     let label = format!("welcome-{}", counter);
 
-    WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/".into()))
+    let url = if let Some(main_win) = app.get_webview_window("main") {
+        if let Ok(main_url) = main_win.url() {
+            info!("Using main window URL for welcome window: {}", main_url);
+            WebviewUrl::External(main_url)
+        } else {
+            WebviewUrl::App("index.html".into())
+        }
+    } else {
+        WebviewUrl::App("index.html".into())
+    };
+
+    WebviewWindowBuilder::new(app, &label, url)
         .title("Feathermark")
         .inner_size(1200.0, 800.0)
         .min_inner_size(800.0, 600.0)
@@ -450,26 +475,38 @@ fn open_in_new_window(app: tauri::AppHandle, path: String) -> Result<(), String>
     create_file_window(&app, &path)
 }
 
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            info!("Single instance triggered with args: {:?}", argv);
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            info!("Single instance triggered — argv: {:?}, cwd: {:?}", argv, cwd);
 
-            if argv.len() > 1 {
-                let file_path = &argv[1];
+            // Try to find a file path in argv (skip the exe path at index 0)
+            let file_path = argv.iter().skip(1).find_map(|arg| {
+                let p = if std::path::Path::new(arg).is_absolute() {
+                    PathBuf::from(arg)
+                } else {
+                    PathBuf::from(&cwd).join(arg)
+                };
+                if p.exists() && (arg.ends_with(".md") || arg.ends_with(".markdown")) {
+                    Some(p.to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            });
+
+            if let Some(file_path) = file_path {
                 info!("Opening file in new window: {}", file_path);
-
-                if let Err(e) = create_file_window(app, file_path) {
+                if let Err(e) = create_file_window(app, &file_path) {
                     error!("Failed to create new window: {}", e);
-                    // Fallback: emit to main window
                     if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("open-file", file_path.clone());
+                        let _ = window.emit("open-file", file_path);
                     }
                 }
             } else {
                 // No file — open a new independent welcome window
-                info!("No file argument, creating new welcome window");
+                info!("No valid file in argv, creating new welcome window");
                 if let Err(e) = create_welcome_window(app) {
                     error!("Failed to create welcome window: {}", e);
                     // Fallback: focus existing main window
@@ -482,6 +519,19 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
+        .on_window_event(|window, event| {
+            if let WindowEvent::Destroyed = event {
+                let label = window.label().to_string();
+                // Clean up watcher thread for this window
+                if let Some(state) = window.try_state::<AppState>() {
+                    let mut signals = state.watcher_stop_signals.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(signal) = signals.remove(&label) {
+                        signal.store(true, Ordering::Release);
+                        info!("Cleaned up watcher for destroyed window: {}", label);
+                    }
+                }
+            }
+        })
         .setup(|app| {
             info!("Feathermark starting up...");
 

@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import { open } from '@tauri-apps/plugin-dialog';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import MarkdownView from '$lib/components/MarkdownView.svelte';
@@ -114,6 +115,7 @@
       if (resolved && resolved !== absolutePath) {
         try {
           const result2 = await openFile(resolved);
+          if (seq !== loadFileSeq) return;
 
           setDocument(result2.path, result2.content);
           if ($tabsEnabled) {
@@ -310,16 +312,27 @@
     cleanups.push(() => window.removeEventListener('error', errorHandler));
     cleanups.push(() => window.removeEventListener('unhandledrejection', rejectionHandler));
 
-    // Check if this window was opened with a ?file= query parameter (multi-window)
-    const urlParams = new URLSearchParams(window.location.search);
-    const fileFromQuery = urlParams.get('file');
+    // On mount, check if this window has a file to load.
+    // New windows store their file path in localStorage keyed by window label.
+    const myLabel = getCurrentWindow().label;
+    const storageKey = `__feathermark_window_${myLabel}`;
+    const windowFile = localStorage.getItem(storageKey);
 
-    if (fileFromQuery) {
-      // New window opened for a specific file — catch errors to avoid silent white screen
-      const filePath = decodeURIComponent(fileFromQuery);
-      loadFile(filePath).catch((err: unknown) => {
+    if (windowFile) {
+      // New window — load the file and clean up
+      localStorage.removeItem(storageKey);
+      console.log('Loading window file:', windowFile);
+      loadFile(windowFile).catch((err: unknown) => {
         console.error('[new-window] Failed to load file:', err);
-        setError(filePath, String(err));
+        setError(windowFile, String(err));
+      });
+    } else if ((window as any).__FEATHERMARK_FILE__) {
+      // Fallback: initialization_script injection (for single-instance / CLI opens)
+      const injectedFile = (window as any).__FEATHERMARK_FILE__ as string;
+      console.log('Loading injected file:', injectedFile);
+      loadFile(injectedFile).catch((err: unknown) => {
+        console.error('[new-window] Failed to load file:', err);
+        setError(injectedFile, String(err));
       });
     } else {
       // Main window — check for cold-start pending file
@@ -340,8 +353,8 @@
 
     listen<string>('file-changed', async (event) => {
       console.log('File changed externally:', event.payload);
-      const changedPath = event.payload;
-      const activeFilePath = $tabsEnabled && $activeTab ? $activeTab.filePath : $documentState.filePath;
+      const changedPath = event.payload.replace(/\\/g, '/');
+      const activeFilePath = ($tabsEnabled && $activeTab ? $activeTab.filePath : $documentState.filePath || '').replace(/\\/g, '/');
       if (changedPath === activeFilePath) {
         fileModifiedExternally = true;
       }
@@ -437,6 +450,7 @@
               content={displayContent}
               filePath={displayFilePath}
               isDark={$theme === 'dark'}
+              vaultRoot={sidebarRoot}
               on:navigate={handleNavigate}
             />
           {/key}

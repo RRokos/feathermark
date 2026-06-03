@@ -5,23 +5,20 @@
   "windows": ["main", "file-*", "welcome-*"],
   "permissions": [
     "core:default",
+    "core:window:allow-create",
+    "core:webview:allow-create-webview-window",
     "opener:default",
     {
       "identifier": "opener:allow-open-path",
       "allow": [
         { "path": "**/*.md" },
-        { "path": "**/*.markdown" },
-        { "path": "**/*.txt" }
+        { "path": "**/*.markdown" }
       ]
     },
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://**" }, { "url": "http://**" }]
+      "allow": [{ "url": "https://**" }]
     },
-    "fs:default",
-    "fs:allow-read-file",
-    "fs:allow-read-dir",
-    "fs:allow-exists",
     "dialog:default",
     "dialog:allow-open"
   ]

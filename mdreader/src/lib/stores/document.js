@@ -112,7 +112,11 @@ function loadRecentFiles() {
   if (typeof localStorage !== 'undefined') {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return Array.isArray(parsed) ? parsed.filter(f => typeof f === 'string') : [];
+      }
+      return [];
     } catch {
       return [];
     }
@@ -180,7 +184,7 @@ export function setError(filePath, error) {
 }
 
 export function clearDocument() {
-  documentState.set(initialDocState);
+  documentState.set({ ...initialDocState });
 }
 
 /**
@@ -219,7 +223,11 @@ function loadRecentVaults() {
   if (typeof localStorage !== 'undefined') {
     try {
       const stored = localStorage.getItem(VAULT_STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return Array.isArray(parsed) ? parsed.filter(v => typeof v === 'string') : [];
+      }
+      return [];
     } catch {
       return [];
     }

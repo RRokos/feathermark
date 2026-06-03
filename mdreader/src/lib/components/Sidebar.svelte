@@ -358,10 +358,12 @@
 <!-- Context menu -->
 {#if contextMenu.visible}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="context-menu"
     style="left: {contextMenu.x}px; top: {contextMenu.y}px"
     on:click|stopPropagation
+    on:keydown|stopPropagation
   >
     <button class="context-menu-item" on:click={contextMenuOpenFile}>
       📄 Open
@@ -466,7 +468,7 @@
   }
 
   .search-bar input:focus {
-    border-color: #646cff;
+    border-color: var(--accent, #646cff);
   }
 
   :global(.dark) .search-bar input {
@@ -476,7 +478,7 @@
   }
 
   :global(.dark) .search-bar input:focus {
-    border-color: #646cff;
+    border-color: var(--accent, #646cff);
   }
 
   .search-clear {
@@ -540,7 +542,7 @@
   .result-file {
     font-size: 12px;
     font-weight: 600;
-    color: #646cff;
+    color: var(--accent, #646cff);
   }
 
   .result-line {

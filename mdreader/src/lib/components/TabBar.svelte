@@ -74,7 +74,7 @@
   .tab.active {
     background: #fff;
     color: #333;
-    border-bottom: 2px solid #646cff;
+    border-bottom: 2px solid var(--accent, #646cff);
   }
 
   :global(.dark) .tab.active {

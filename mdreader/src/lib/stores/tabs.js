@@ -1,4 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
+import { clearDocument } from '$lib/stores/document.js';
 
 // ─── Tabs enabled toggle ─────────────────────────────────────────────
 
@@ -56,7 +57,7 @@ let tabCounter = 0;
 function getTitle(filePath) {
   const parts = filePath.replace(/\\/g, '/').split('/');
   const name = parts[parts.length - 1];
-  return name.replace(/\.md$/, '');
+  return name.replace(/\.(md|markdown)$/i, '');
 }
 
 /**
@@ -118,6 +119,7 @@ export function removeTab(tabId) {
       activeTabId.set(remaining[newIdx].id);
     } else {
       activeTabId.set(null);
+      clearDocument();
     }
   }
 }

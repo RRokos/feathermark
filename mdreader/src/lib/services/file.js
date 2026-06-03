@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 const EDITOR_KEY = 'mdreader_editor';
+let windowCounter = 0;
 
 /**
  * @param {string} filePath
@@ -94,17 +96,28 @@ export async function searchFiles(root, query) {
 }
 
 /**
- * Open a file in a new window
+ * Open a file in a new window using the JS WebviewWindow API
  * @param {string} filePath
  * @returns {Promise<void>}
  */
 export async function openInNewWindow(filePath) {
-  try {
-    await invoke('open_in_new_window', { path: filePath });
-  } catch (/** @type {any} */ error) {
-    console.error('Failed to open in new window:', error);
-    throw error;
-  }
+  const label = `file-${++windowCounter}-${Date.now()}`;
+  const fileName = filePath.replace(/\\/g, '/').split('/').pop() || 'Untitled';
+
+  // Store the file path in localStorage so the new window can read it on mount
+  localStorage.setItem(`__feathermark_window_${label}`, filePath);
+
+  const webview = new WebviewWindow(label, {
+    title: `Feathermark — ${fileName}`,
+    width: 1200,
+    height: 800,
+    center: true,
+  });
+
+  webview.once('tauri://error', (e) => {
+    console.error('Failed to create new window:', e);
+    localStorage.removeItem(`__feathermark_window_${label}`);
+  });
 }
 
 /**

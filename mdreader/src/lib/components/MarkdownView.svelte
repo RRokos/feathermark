@@ -9,6 +9,7 @@
   export let content: string = '';
   export let filePath: string = '';
   export let isDark: boolean = false;
+  export let vaultRoot: string = '';
 
   const dispatch = createEventDispatcher<{ navigate: { path: string; anchor: string | null } }>();
 
@@ -22,8 +23,8 @@
   // Configure DOMPurify to allow our custom elements and attributes
   const purifyConfig = {
     ADD_TAGS: ['span', 'div', 'sup', 'ol', 'li', 'hr', 'svg', 'path', 'g', 'rect', 'text', 'line', 'circle', 'polygon', 'polyline', 'marker', 'defs', 'clipPath', 'foreignObject', 'tspan'],
-    ADD_ATTR: ['class', 'data-embed-path', 'data-footnote-id', 'id', 'style', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'transform', 'x', 'y', 'width', 'height', 'rx', 'ry', 'cx', 'cy', 'r', 'points', 'marker-end', 'marker-start', 'text-anchor', 'dominant-baseline', 'font-size', 'font-family', 'clip-path', 'dx', 'dy'],
-    ALLOW_DATA_ATTR: true,
+    ADD_ATTR: ['class', 'data-embed-path', 'data-footnote-id', 'data-original-width', 'id', 'style', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'transform', 'x', 'y', 'width', 'height', 'rx', 'ry', 'cx', 'cy', 'r', 'points', 'marker-end', 'marker-start', 'text-anchor', 'dominant-baseline', 'font-size', 'font-family', 'clip-path', 'dx', 'dy'],
+    ALLOW_DATA_ATTR: false,
     ALLOW_UNKNOWN_PROTOCOLS: false
   };
 
@@ -143,7 +144,8 @@
         anchor = parts.slice(1).join('#');
       }
 
-      const base: string = getBasePath();
+      // Use vault root for /vault/ links so embeds resolve correctly
+      const base: string = vaultRoot || getBasePath();
       const fullPath: string = `${base}/${pagePart}.md`;
 
       dispatch('navigate', { path: fullPath, anchor: anchor || null });
@@ -216,7 +218,7 @@
 
   :global(.markdown-view .frontmatter .fm-key) {
     font-weight: 600;
-    color: #646cff;
+    color: var(--accent, #646cff);
     white-space: nowrap;
     width: 1%;
   }
@@ -260,7 +262,7 @@
   }
 
   :global(.markdown-view a) {
-    color: #646cff;
+    color: var(--accent, #646cff);
     text-decoration: none;
   }
 
@@ -298,7 +300,7 @@
   }
 
   :global(.markdown-view blockquote) {
-    border-left: 4px solid #646cff;
+    border-left: 4px solid var(--accent, #646cff);
     margin: 1rem 0;
     padding: 0.5rem 1rem;
     background: #f9f9f9;
@@ -397,12 +399,12 @@
   }
 
   :global(.markdown-view a.internal-link) {
-    color: #646cff;
+    color: var(--accent, #646cff);
     cursor: pointer;
   }
 
   :global(.markdown-view blockquote.callout) {
-    border-left-color: #646cff;
+    border-left-color: var(--accent, #646cff);
     background: #f0f4ff;
   }
 
@@ -411,7 +413,7 @@
   }
 
   :global(.markdown-view .callout) {
-    border-left: 4px solid #646cff;
+    border-left: 4px solid var(--accent, #646cff);
     background: #f0f4ff;
     margin: 1rem 0;
     padding: 0;
@@ -455,11 +457,11 @@
 
   /* Callout type colors */
   :global(.markdown-view .callout-note) {
-    border-left-color: #646cff;
+    border-left-color: var(--accent, #646cff);
   }
 
   :global(.markdown-view .callout-note .callout-title) {
-    background: rgba(100, 108, 255, 0.1);
+    background: var(--accent-bg, rgba(100, 108, 255, 0.1));
   }
 
   :global(.markdown-view .callout-warning) {
@@ -538,8 +540,8 @@
   :global(.dark .markdown-view .callout-formula),
   :global(.dark .markdown-view .callout-math) { background: #1f1a2e; }
 
-  :global(.markdown-view .callout-info) { border-left-color: #646cff; }
-  :global(.markdown-view .callout-info .callout-title) { background: rgba(100, 108, 255, 0.1); }
+  :global(.markdown-view .callout-info) { border-left-color: var(--accent, #646cff); }
+  :global(.markdown-view .callout-info .callout-title) { background: var(--accent-bg, rgba(100, 108, 255, 0.1)); }
 
   /* Nested callouts */
   :global(.markdown-view .callout .callout) {
@@ -573,7 +575,7 @@
   }
 
   :global(.markdown-view .footnote-ref) {
-    color: #646cff;
+    color: var(--accent, #646cff);
     cursor: pointer;
     font-size: 0.75rem;
     margin-left: 2px;
@@ -585,8 +587,8 @@
 
   /* Tags */
   :global(.markdown-view .tag) {
-    color: #646cff;
-    background: rgba(100, 108, 255, 0.1);
+    color: var(--accent, #646cff);
+    background: var(--accent-bg, rgba(100, 108, 255, 0.1));
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 0.85em;
@@ -613,7 +615,7 @@
     padding: 1rem;
     background: #f6f8fa;
     border-radius: 6px;
-    border-left: 3px solid #646cff;
+    border-left: 3px solid var(--accent, #646cff);
   }
 
   :global(.dark .markdown-view .embed-markdown) {

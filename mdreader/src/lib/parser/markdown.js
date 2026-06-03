@@ -67,27 +67,45 @@ function escapeHtml(str) {
  */
 export function preprocessEmbeds(content, embedChain) {
   if (!embedChain) embedChain = new Set();
-  return content.replace(EMBED_REGEX, (match, embedPath) => {
-    // Normalize path for cycle detection
-    const normalizedPath = embedPath.replace(/\\/g, '/');
-    if (embedChain.has(normalizedPath)) {
-      return `<div class="embed-error">Circular embed detected: ${escapeHtml(embedPath)}</div>`;
+
+  const lines = content.split('\n');
+  const result = [];
+  let inCodeBlock = false;
+
+  for (const line of lines) {
+    if (line.trimStart().startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      result.push(line);
+      continue;
     }
-
-    // Mark this file as being embedded
-    embedChain.add(normalizedPath);
-
-    const safePath = escapeHtml(embedPath);
-
-    // Determine if it's an image or markdown
-    if (embedPath.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
-      // Image embed
-      return `<div class="embed-image"><img src="${safePath}" alt="${safePath}" /></div>`;
-    } else {
-      // Markdown embed placeholder - will be resolved later
-      return `<div class="embed-markdown" data-embed-path="${safePath}"><span class="embed-loading">Loading ${safePath}...</span></div>`;
+    if (inCodeBlock) {
+      result.push(line);
+      continue;
     }
-  });
+    result.push(line.replace(EMBED_REGEX, (match, embedPath) => {
+      // Normalize path for cycle detection
+      const normalizedPath = embedPath.replace(/\\/g, '/');
+      if (embedChain.has(normalizedPath)) {
+        return `<div class="embed-error">Circular embed detected: ${escapeHtml(embedPath)}</div>`;
+      }
+
+      // Mark this file as being embedded
+      embedChain.add(normalizedPath);
+
+      const safePath = escapeHtml(embedPath);
+
+      // Determine if it's an image or markdown
+      if (embedPath.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
+        // Image embed
+        return `<div class="embed-image"><img src="${safePath}" alt="${safePath}" /></div>`;
+      } else {
+        // Markdown embed placeholder - will be resolved later
+        return `<div class="embed-markdown" data-embed-path="${safePath}"><span class="embed-loading">Loading ${safePath}...</span></div>`;
+      }
+    }));
+  }
+
+  return result.join('\n');
 }
 
 /**
@@ -173,99 +191,120 @@ export function preprocessCallouts(content) {
   let inCallout = false;
   let calloutType = '';
   let calloutDepth = 0;
-  let pendingEmptyLines = 0;
   let inCodeBlock = false;
+  // Track code blocks INSIDE callouts separately — the '> ' prefix
+  // breaks `trimStart().startsWith('```')` detection, so we track
+  // fences on the stripped line within callout context.
+  let inCalloutCodeBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Track fenced code blocks — don't process anything inside them
-    if (line.trimStart().startsWith('```')) {
-      inCodeBlock = !inCodeBlock;
-      if (inCallout) {
-        // Code fence inside a callout: strip leading '> ' if present
-        if (line.startsWith('> ')) {
-          result.push(line.substring(2));
-        } else if (line.startsWith('>')) {
-          result.push(line.substring(1));
-        } else {
-          // Code fence without '>' ends the callout
-          for (let d = 0; d < calloutDepth; d++) result.push('\n</div></div>');
-          inCallout = false;
-          calloutDepth = 0;
-          pendingEmptyLines = 0;
-          result.push(line);
-        }
+    // ── Outside callout ─────────────────────────────────────────────
+    if (!inCallout) {
+      // Track fenced code blocks — don't process callout syntax inside them
+      if (line.trimStart().startsWith('```')) {
+        inCodeBlock = !inCodeBlock;
+        result.push(line);
+        continue;
+      }
+
+      if (inCodeBlock) {
+        // Inside a code block — pass through unchanged
+        result.push(line);
+        continue;
+      }
+
+      // Not in a code block — check for callout start
+      const calloutMatch = line.match(CALLOUT_REGEX);
+      if (calloutMatch) {
+        inCallout = true;
+        calloutType = calloutMatch[1].toLowerCase();
+        const title = calloutMatch[3] || calloutType;
+        calloutDepth = 1;
+        inCalloutCodeBlock = false;
+        const icon = CALLOUT_ICONS[calloutType] || 'ℹ️';
+        result.push(`<div class="callout callout-${calloutType}">`);
+        result.push(`<div class="callout-title"><span class="callout-icon">${icon}</span> ${title}</div>`);
+        result.push(`<div class="callout-content">\n`);
       } else {
         result.push(line);
       }
       continue;
     }
 
-    if (inCodeBlock) {
-      // Inside a code block — pass through, but strip '> ' if in callout
-      if (inCallout) {
-        if (line.startsWith('> ')) {
-          result.push(line.substring(2));
-        } else if (line.startsWith('>')) {
-          result.push(line.substring(1));
-        } else {
-          result.push(line);
-        }
+    // ── Inside callout ──────────────────────────────────────────────
+
+    // Count blockquote nesting level (> = 1, > > = 2, etc.)
+    let nestingLevel = 0;
+    let tempLine = line;
+    while (tempLine.startsWith('> ')) {
+      nestingLevel++;
+      tempLine = tempLine.substring(2);
+    }
+    if (tempLine.startsWith('>')) {
+      nestingLevel++;
+      tempLine = tempLine.substring(1);
+    }
+
+    // If nesting level dropped, close inner callouts to match
+    // e.g. was at depth 2, now at level 1 → close 1 inner callout
+    if (nestingLevel > 0 && nestingLevel < calloutDepth && calloutDepth > 1) {
+      const toClose = calloutDepth - nestingLevel;
+      for (let d = 0; d < toClose; d++) {
+        result.push('\n</div></div>');
+        calloutDepth--;
+      }
+    }
+
+    // Strip '> ' prefix for lines that have it
+    const stripped = line.startsWith('> ') ? line.substring(2)
+                    : line.startsWith('>') ? line.substring(1)
+                    : null;
+
+    // Check for code fence on the stripped line (handles ``` inside callouts)
+    if (stripped !== null && stripped.trimStart().startsWith('```')) {
+      inCalloutCodeBlock = !inCalloutCodeBlock;
+      result.push(stripped);
+      continue;
+    }
+
+    // Inside a code block within the callout — pass stripped line through
+    if (inCalloutCodeBlock) {
+      if (stripped !== null) {
+        result.push(stripped);
       } else {
         result.push(line);
       }
       continue;
     }
 
-    const calloutMatch = line.match(CALLOUT_REGEX);
-
-    if (!inCallout && calloutMatch) {
-      inCallout = true;
-      calloutType = calloutMatch[1].toLowerCase();
-      const title = calloutMatch[3] || calloutType;
-      calloutDepth = 1;
-      pendingEmptyLines = 0;
-      const icon = CALLOUT_ICONS[calloutType] || 'ℹ️';
-      result.push(`<div class="callout callout-${calloutType}">`);
-      result.push(`<div class="callout-title"><span class="callout-icon">${icon}</span> ${title}</div>`);
-      result.push(`<div class="callout-content">\n`);
-    } else if (inCallout) {
-      // Check for nested callout inside the current one
-      const nestedMatch = line.match(/^>\s*\[!(\w+)\]([+-])?\s*(.*)$/);
-      if (nestedMatch && line.startsWith('> ')) {
-        for (let j = 0; j < pendingEmptyLines; j++) result.push('');
-        pendingEmptyLines = 0;
-        const nestedType = nestedMatch[1].toLowerCase();
-        const nestedTitle = nestedMatch[3] || nestedType;
-        const nestedIcon = CALLOUT_ICONS[nestedType] || 'ℹ️';
-        calloutDepth++;
-        result.push(`<div class="callout callout-${nestedType}">`);
-        result.push(`<div class="callout-title"><span class="callout-icon">${nestedIcon}</span> ${nestedTitle}</div>`);
-        result.push(`<div class="callout-content">`);
-      } else if (line.startsWith('> ')) {
-        for (let j = 0; j < pendingEmptyLines; j++) result.push('');
-        pendingEmptyLines = 0;
-        result.push(line.substring(2));
-      } else if (line.startsWith('>')) {
-        for (let j = 0; j < pendingEmptyLines; j++) result.push('');
-        pendingEmptyLines = 0;
-        result.push(line.substring(1));
-      } else if (line.trim() === '') {
-        // Empty line (not starting with '>') ends the callout — matches Obsidian behavior
-        for (let d = 0; d < calloutDepth; d++) result.push('\n</div></div>');
-        inCallout = false;
-        calloutDepth = 0;
-        pendingEmptyLines = 0;
-        result.push(line);
-      } else {
-        for (let d = 0; d < calloutDepth; d++) result.push('\n</div></div>');
-        inCallout = false;
-        calloutDepth = 0;
-        pendingEmptyLines = 0;
-        result.push(line);
-      }
+    // Check for nested callout (only if line starts with '> ')
+    const nestedMatch = line.match(/^>\s*\[!(\w+)\]([+-])?\s*(.*)$/);
+    if (nestedMatch && line.startsWith('> ') && nestingLevel <= calloutDepth) {
+      const nestedType = nestedMatch[1].toLowerCase();
+      const nestedTitle = nestedMatch[3] || nestedType;
+      const nestedIcon = CALLOUT_ICONS[nestedType] || 'ℹ️';
+      calloutDepth++;
+      result.push(`<div class="callout callout-${nestedType}">`);
+      result.push(`<div class="callout-title"><span class="callout-icon">${nestedIcon}</span> ${nestedTitle}</div>`);
+      result.push(`<div class="callout-content">`);
+    } else if (stripped !== null) {
+      // Regular callout content line
+      result.push(stripped);
+    } else if (line.trim() === '') {
+      // Empty line (not starting with '>') ends the callout — matches Obsidian behavior
+      for (let d = 0; d < calloutDepth; d++) result.push('\n</div></div>');
+      inCallout = false;
+      calloutDepth = 0;
+      inCalloutCodeBlock = false;
+      result.push(line);
     } else {
+      // Non-empty line without '> ' prefix ends the callout
+      for (let d = 0; d < calloutDepth; d++) result.push('\n</div></div>');
+      inCallout = false;
+      calloutDepth = 0;
+      inCalloutCodeBlock = false;
       result.push(line);
     }
   }
@@ -282,17 +321,40 @@ export function preprocessCallouts(content) {
  * @returns {string}
  */
 export function preprocessWikilinks(content) {
-  return content.replace(WIKILINK_REGEX, (match, page, alias) => {
-    const displayText = alias || page;
-    const parts = page.split('#');
-    const pageName = parts[0];
-    const heading = parts[1] || '';
+  const lines = content.split('\n');
+  const result = [];
+  let inCodeBlock = false;
 
-    const encodedPage = encodeURIComponent(pageName);
-    const linkPath = heading ? `/vault/${encodedPage}#${encodeURIComponent(heading)}` : `/vault/${encodedPage}`;
+  for (const line of lines) {
+    if (line.trimStart().startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      result.push(line);
+      continue;
+    }
+    if (inCodeBlock) {
+      result.push(line);
+      continue;
+    }
+    // Split by inline code spans, only process non-code parts (like preprocessTags)
+    const parts = line.split(/(`[^`]+`)/);
+    const processed = parts.map((part, idx) => {
+      if (idx % 2 === 1) return part; // inline code — pass through
+      return part.replace(WIKILINK_REGEX, (match, page, alias) => {
+        const displayText = alias || page;
+        const parts = page.split('#');
+        const pageName = parts[0];
+        const heading = parts[1] || '';
 
-    return `[${displayText}](${linkPath})`;
-  });
+        const encodedPage = encodeURIComponent(pageName);
+        const linkPath = heading ? `/vault/${encodedPage}#${encodeURIComponent(heading)}` : `/vault/${encodedPage}`;
+
+        return `[${displayText}](${linkPath})`;
+      });
+    });
+    result.push(processed.join(''));
+  }
+
+  return result.join('\n');
 }
 
 /**
@@ -305,42 +367,98 @@ export function preprocessFootnotes(content) {
   const lines = content.split('\n');
   const result = [];
 
-  // First pass: collect all footnote definitions
-  for (const line of lines) {
-    const defMatch = line.match(/^\[\^([^\]]+)\]:\s*(.*)$/);
-    if (defMatch) {
-      footnoteDefs.set(defMatch[1], defMatch[2]);
+  // First pass: collect all footnote definitions (skip inside code blocks)
+  // Supports multi-line definitions (continuation lines indented with 2+ spaces or 1 tab)
+  {
+    let inCodeBlock = false;
+    let currentId = null;
+    let currentText = '';
+    for (const line of lines) {
+      if (line.trimStart().startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
+      if (inCodeBlock) continue;
+
+      const defMatch = line.match(/^\[\^([^\]]+)\]:\s*(.*)$/);
+      if (defMatch) {
+        // Save previous definition if any
+        if (currentId) {
+          footnoteDefs.set(currentId, currentText.trim());
+        }
+        currentId = defMatch[1];
+        currentText = defMatch[2];
+      } else if (currentId && /^(?:  |\t)/.test(line)) {
+        // Continuation line (indented with 2+ spaces or tab) — append to definition
+        currentText += ' ' + line.trim();
+      } else {
+        // Not a continuation — save and reset
+        if (currentId) {
+          footnoteDefs.set(currentId, currentText.trim());
+          currentId = null;
+          currentText = '';
+        }
+      }
+    }
+    // Save last definition
+    if (currentId) {
+      footnoteDefs.set(currentId, currentText.trim());
     }
   }
 
   // Second pass: process content and collect references
+  let inCodeBlock = false;
+  let skipContinuation = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // Skip footnote definition lines
-    if (/^\[\^[^\]]+\]:/.test(line)) {
+
+    // Track fenced code blocks
+    if (line.trimStart().startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      result.push(line);
+      skipContinuation = false;
+      continue;
+    }
+    if (inCodeBlock) {
+      result.push(line);
       continue;
     }
 
-    // Replace footnote references with superscript spans
-    const processedLine = line.replace(FOOTNOTE_REF_REGEX, (match, id) => {
-      if (footnoteDefs.has(id)) {
-        footnoteRefs.set(id, true);
-        const safeId = escapeHtml(id);
-        return `<sup class="footnote-ref" data-footnote-id="${safeId}">[${safeId}]</sup>`;
-      }
-      return match;
-    });
+    // Skip footnote definition lines
+    if (/^\[\^[^\]]+\]:/.test(line)) {
+      skipContinuation = true;
+      continue;
+    }
 
-    result.push(processedLine);
+    // Skip continuation lines of footnote definitions
+    if (skipContinuation && /^(?:  |\t)/.test(line)) {
+      continue;
+    }
+    skipContinuation = false;
+
+    // Replace footnote references with superscript spans (skip inline code)
+    const parts = line.split(/(`[^`]+`)/);
+    const processed = parts.map((part, idx) => {
+      if (idx % 2 === 1) return part; // inline code — pass through
+      return part.replace(FOOTNOTE_REF_REGEX, (match, id) => {
+        if (footnoteDefs.has(id)) {
+          footnoteRefs.set(id, true);
+          const safeId = escapeHtml(id);
+          return `<sup class="footnote-ref" data-footnote-id="${safeId}">[${safeId}]</sup>`;
+        }
+        return match;
+      });
+    });
+    result.push(processed.join(''));
   }
 
   // Build footnotes section at the end
+  // Render footnote definitions through markdown-it for inline formatting
   const footnotes = [];
   for (const [id] of footnoteRefs) {
     const def = footnoteDefs.get(id);
     if (def) {
       const safeId = escapeHtml(id);
-      footnotes.push(`<li id="footnote-${safeId}"><sup>[${safeId}]</sup> ${escapeHtml(def)}</li>`);
+      // Use markdown-it to render inline formatting (bold, italic, code, links)
+      const renderedDef = md.renderInline(def);
+      footnotes.push(`<li id="footnote-${safeId}"><sup>[${safeId}]</sup> ${renderedDef}</li>`);
     }
   }
 
@@ -408,7 +526,7 @@ function shieldMath(content) {
   /** @type {string[]} */
   const mathBlocks = [];
   const BLOCK_MATH = /\$\$([\s\S]*?)\$\$/g;
-  const INLINE_MATH = /(?<!\$)\$(?!\$)(.+?)\$(?!\$)/g;
+  const INLINE_MATH = /(?<!\$)\$(?!\$)(?! )(\S.*?\S|\S)\$(?!\$)/g;
 
   // First shield block math ($$...$$) — order matters
   // NOTE: Use \x01 (SOH) instead of \x00 (NUL) because markdown-it replaces
