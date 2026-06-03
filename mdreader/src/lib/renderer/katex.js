@@ -60,7 +60,7 @@ export function renderMathInDOM(container) {
 
     // Match block math $$...$$ and inline math $...$
     // Inline: allow any chars except newline between single $, non-greedy
-    const combinedRegex = /\$\$([\s\S]*?)\$\$|(?<!\$)\$(?!\$)(?! )(\S.*?\S|\S)\$(?!\$)/g;
+    const combinedRegex = /\$\$([\s\S]*?)\$\$|(?<!\$)\$(?!\$)(.+?)\$(?!\$)/g;
     let lastIndex = 0;
     let match;
     const fragments = [];

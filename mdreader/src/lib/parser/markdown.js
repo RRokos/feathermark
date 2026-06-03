@@ -345,7 +345,7 @@ export function preprocessWikilinks(content) {
         const pageName = parts[0];
         const heading = parts[1] || '';
 
-        const encodedPage = encodeURIComponent(pageName);
+        const encodedPage = pageName.split('/').map(s => encodeURIComponent(s)).join('/');
         const linkPath = heading ? `/vault/${encodedPage}#${encodeURIComponent(heading)}` : `/vault/${encodedPage}`;
 
         return `[${displayText}](${linkPath})`;
@@ -526,7 +526,7 @@ function shieldMath(content) {
   /** @type {string[]} */
   const mathBlocks = [];
   const BLOCK_MATH = /\$\$([\s\S]*?)\$\$/g;
-  const INLINE_MATH = /(?<!\$)\$(?!\$)(?! )(\S.*?\S|\S)\$(?!\$)/g;
+  const INLINE_MATH = /(?<!\$)\$(?!\$)(.+?)\$(?!\$)/g;
 
   // First shield block math ($$...$$) — order matters
   // NOTE: Use \x01 (SOH) instead of \x00 (NUL) because markdown-it replaces
