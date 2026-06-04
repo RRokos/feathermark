@@ -61,6 +61,61 @@ function escapeHtml(str) {
 }
 
 /**
+ * @param {string} embedPath
+ * @returns {{ target: string, meta: string }}
+ */
+function splitEmbedTarget(embedPath) {
+  const pipeIndex = embedPath.indexOf('|');
+  if (pipeIndex < 0) {
+    return { target: embedPath.trim(), meta: '' };
+  }
+  return {
+    target: embedPath.slice(0, pipeIndex).trim(),
+    meta: embedPath.slice(pipeIndex + 1).trim()
+  };
+}
+
+/**
+ * @param {string} target
+ * @returns {string}
+ */
+function stripResourceSuffix(target) {
+  const queryIndex = target.indexOf('?');
+  const hashIndex = target.indexOf('#');
+  const indexes = [queryIndex, hashIndex].filter((index) => index >= 0);
+  const suffixIndex = indexes.length > 0 ? Math.min(...indexes) : -1;
+  return suffixIndex < 0 ? target : target.slice(0, suffixIndex);
+}
+
+/**
+ * @param {string} target
+ * @returns {boolean}
+ */
+function isImageEmbedTarget(target) {
+  return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(stripResourceSuffix(target));
+}
+
+/**
+ * @param {string} meta
+ * @returns {{ alt: string, width: string, height: string }}
+ */
+function parseImageEmbedMeta(meta) {
+  const trimmed = meta.trim();
+  if (!trimmed) return { alt: '', width: '', height: '' };
+
+  const size = trimmed.match(/^(\d{1,4})(?:\s*x\s*(\d{1,4}))?$/i);
+  if (size) {
+    return {
+      alt: '',
+      width: size[1],
+      height: size[2] || ''
+    };
+  }
+
+  return { alt: trimmed, width: '', height: '' };
+}
+
+/**
  * @param {string} content
  * @param {Set<string>} embedChain
  * @returns {string}
@@ -83,25 +138,33 @@ export function preprocessEmbeds(content, embedChain) {
       continue;
     }
     result.push(line.replace(EMBED_REGEX, (match, embedPath) => {
+      const { target, meta } = splitEmbedTarget(embedPath);
+      if (!target) return match;
+
+      // Image embeds are leaf resources, so repeated images should render
+      // normally instead of being treated as circular Markdown embeds.
+      if (isImageEmbedTarget(target)) {
+        const safePath = escapeHtml(target);
+        const imageMeta = parseImageEmbedMeta(meta);
+        const alt = escapeHtml(imageMeta.alt || target);
+        const width = imageMeta.width ? ` width="${imageMeta.width}"` : '';
+        const height = imageMeta.height ? ` height="${imageMeta.height}"` : '';
+        return `<div class="embed-image"><img src="${safePath}" alt="${alt}"${width}${height} /></div>`;
+      }
+
       // Normalize path for cycle detection
-      const normalizedPath = embedPath.replace(/\\/g, '/');
+      const normalizedPath = target.replace(/\\/g, '/');
       if (embedChain.has(normalizedPath)) {
-        return `<div class="embed-error">Circular embed detected: ${escapeHtml(embedPath)}</div>`;
+        return `<div class="embed-error">Circular embed detected: ${escapeHtml(target)}</div>`;
       }
 
       // Mark this file as being embedded
       embedChain.add(normalizedPath);
 
-      const safePath = escapeHtml(embedPath);
+      const safePath = escapeHtml(target);
 
-      // Determine if it's an image or markdown
-      if (embedPath.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
-        // Image embed
-        return `<div class="embed-image"><img src="${safePath}" alt="${safePath}" /></div>`;
-      } else {
-        // Markdown embed placeholder - will be resolved later
-        return `<div class="embed-markdown" data-embed-path="${safePath}"><span class="embed-loading">Loading ${safePath}...</span></div>`;
-      }
+      // Markdown embed placeholder - will be resolved later
+      return `<div class="embed-markdown" data-embed-path="${safePath}"><span class="embed-loading">Loading ${safePath}...</span></div>`;
     }));
   }
 
