@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120" role="img" aria-label="Styled SVG sample">
+  <defs>
+    <linearGradient id="mark-gradient" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+  </defs>
+  <style>
+    .card { fill: #f8fafc; stroke: #334155; stroke-width: 3; }
+    .mark { fill: url(#mark-gradient); stroke: #0f172a; stroke-width: 2; stroke-linejoin: round; }
+    .label { fill: #0f172a; font-family: Arial, sans-serif; font-size: 18px; font-weight: 700; }
+  </style>
+  <rect class="card" x="8" y="8" width="224" height="104" rx="12"/>
+  <path class="mark" d="M56 78 L86 32 L116 78 Z"/>
+  <text class="label" x="132" y="66">SVG OK</text>
+</svg>
