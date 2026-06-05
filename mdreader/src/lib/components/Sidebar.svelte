@@ -391,6 +391,7 @@
   :global(.dark) .sidebar {
     background: #252526;
     border-color: #333;
+    color: #e0e0e0;
   }
 
   .toolbar {
@@ -410,13 +411,14 @@
   .toolbar button {
     background: none;
     border: 1px solid #ccc;
+    color: inherit;
     border-radius: 4px;
     padding: 4px 8px;
     cursor: pointer;
     font-size: 14px;
   }
 
-  :global(.dark) .toolbar button {
+  :global(.dark) .sidebar .toolbar button {
     color: #f5f5f5;
     border-color: #555;
   }
@@ -426,7 +428,7 @@
     cursor: not-allowed;
   }
 
-  :global(.dark) .toolbar button:disabled {
+  :global(.dark) .sidebar .toolbar button:disabled {
     color: #8a8a8a;
   }
 
