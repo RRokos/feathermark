@@ -1,6 +1,7 @@
 # SVG Rendering Notes
 
-This branch contains a partial SVG rendering improvement for the Markdown reader.
+This branch contains SVG rendering improvements for the Markdown reader and a
+small dark-mode sidebar control fix.
 
 ## Current Result
 
@@ -12,12 +13,14 @@ This branch contains a partial SVG rendering improvement for the Markdown reader
   - `![[images/example.svg|180x90]]`
 - Local image sources inside rendered Markdown are resolved relative to the Markdown file path instead of the WebView URL.
 - Tauri's asset protocol is enabled for these local image resources.
+- Inline SVG written directly in Markdown now avoids tag preprocessing inside
+  `<svg>` and `<style>` blocks, so color values such as `#2563eb` are not
+  rewritten as Markdown tags.
+- The repository browser toolbar controls remain visible in dark mode.
 
-## Remaining Issue
+## Inline SVG Example
 
-Inline SVG written directly inside a Markdown file still does not render correctly in the real app.
-
-Example:
+Inline SVG with local styles is expected to render:
 
 ```md
 <svg viewBox="0 0 120 40" width="120" height="40">
@@ -28,7 +31,9 @@ Example:
 </svg>
 ```
 
-The sanitizer configuration was broadened to allow common SVG tags, SVG attributes, and SVG-local `<style>` content. A browser-level sanitizer test confirmed that SVG-local `<style>` can survive sanitization while unsafe style patterns are removed. However, the inline SVG still fails in the packaged/real Tauri app, so the remaining problem is likely in the Markdown-to-DOM rendering path, Svelte DOM insertion behavior, CSS/layout interaction, or a Tauri WebView-specific behavior. This is an observation, not a confirmed root cause.
+The sanitizer configuration allows common SVG tags, SVG attributes, and
+SVG-local `<style>` content. Tag preprocessing now skips SVG/style blocks so
+hex colors inside SVG CSS are preserved.
 
 ## Security Expectations
 
@@ -42,10 +47,12 @@ Inline SVG support should remain conservative:
 
 ## Verification Used
 
+- Targeted Markdown rendering check:
+  - Inline SVG CSS hex colors are not rewritten as `<span class="tag">...`.
+  - Normal prose tags such as `hello #tag` still render as Markdown tags.
 - `npm run check`
 - `npm run build`
-- `npm run tauri build`
-- Packaged output was generated successfully:
+- Earlier in this branch, `npm run tauri build` generated packaged output successfully:
   - `src-tauri/target/release/mdreader.exe`
   - `src-tauri/target/release/bundle/msi/Feathermark_0.1.5_x64_en-US.msi`
   - `src-tauri/target/release/bundle/nsis/Feathermark_0.1.5_x64-setup.exe`

@@ -416,9 +416,18 @@
     font-size: 14px;
   }
 
+  :global(.dark) .toolbar button {
+    color: #f5f5f5;
+    border-color: #555;
+  }
+
   .toolbar button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  :global(.dark) .toolbar button:disabled {
+    color: #8a8a8a;
   }
 
   .toolbar button:hover:not(:disabled) {

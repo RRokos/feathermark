@@ -48,6 +48,26 @@ const TAG_REGEX = /(?:^|\s)#([\w\-\/]+)/g;
 // Embed regex: ![[file]] or !![[note.md]]
 const EMBED_REGEX = /!\[\[([^\]]+)\]\]/g;
 
+const RAW_TAG_SKIP_REGEX = /<\s*(svg|style)(?=[\s>])/i;
+
+/**
+ * @param {string} line
+ * @returns {string|null}
+ */
+function getRawTagToSkip(line) {
+  const match = line.match(RAW_TAG_SKIP_REGEX);
+  return match ? match[1].toLowerCase() : null;
+}
+
+/**
+ * @param {string} line
+ * @param {string} tag
+ * @returns {boolean}
+ */
+function closesRawTag(line, tag) {
+  return new RegExp(`<\\s*\\/\\s*${tag}\\s*>`, 'i').test(line);
+}
+
 /** Escape HTML special characters to prevent injection via filenames
  * @param {string} str
  * @returns {string}
@@ -179,6 +199,7 @@ export function preprocessTags(content) {
   const lines = content.split('\n');
   const result = [];
   let inCodeBlock = false;
+  let rawTagToSkip = null;
 
   for (const line of lines) {
     // Track fenced code blocks
@@ -192,6 +213,24 @@ export function preprocessTags(content) {
       result.push(line);
       continue;
     }
+
+    if (rawTagToSkip) {
+      result.push(line);
+      if (closesRawTag(line, rawTagToSkip)) {
+        rawTagToSkip = null;
+      }
+      continue;
+    }
+
+    const rawTag = getRawTagToSkip(line);
+    if (rawTag) {
+      result.push(line);
+      if (!closesRawTag(line, rawTag) && !/\/\s*>/.test(line)) {
+        rawTagToSkip = rawTag;
+      }
+      continue;
+    }
+
     // Skip tags inside inline code (backtick-delimited segments)
     // Split line by inline code spans, only process non-code parts
     const parts = line.split(/(`[^`]+`)/);
