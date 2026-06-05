@@ -65,6 +65,44 @@ accentColor.subscribe((val) => {
   }
 });
 
+// UI scale
+const UI_SCALE_KEY = 'mdreader_ui_scale';
+export const UI_SCALE_MIN = 0.85;
+export const UI_SCALE_MAX = 1.15;
+export const UI_SCALE_STEP = 0.05;
+export const DEFAULT_UI_SCALE = 1;
+
+/**
+ * @param {number|string|null|undefined} value
+ * @returns {number}
+ */
+export function normalizeUiScale(value) {
+  const num = typeof value === 'string' ? Number(value) : value;
+  if (!Number.isFinite(num)) return DEFAULT_UI_SCALE;
+
+  const rounded = Math.round(/** @type {number} */ (num) / UI_SCALE_STEP) * UI_SCALE_STEP;
+  const clamped = Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, rounded));
+  return Number(clamped.toFixed(2));
+}
+
+function loadUiScale() {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      return normalizeUiScale(localStorage.getItem(UI_SCALE_KEY));
+    } catch {
+      return DEFAULT_UI_SCALE;
+    }
+  }
+  return DEFAULT_UI_SCALE;
+}
+
+export const uiScale = writable(loadUiScale());
+uiScale.subscribe((val) => {
+  if (typeof localStorage !== 'undefined') {
+    try { localStorage.setItem(UI_SCALE_KEY, String(normalizeUiScale(val))); } catch {}
+  }
+});
+
 /**
  * Expand 3-digit hex (#abc) to 6-digit (#aabbcc)
  * @param {string} hex

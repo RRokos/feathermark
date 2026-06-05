@@ -2,7 +2,11 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
   import { tabsEnabled } from '$lib/stores/tabs.js';
-  import { accentColor } from '$lib/stores/document.js';
+  import {
+    accentColor, uiScale,
+    UI_SCALE_MIN, UI_SCALE_MAX, UI_SCALE_STEP, DEFAULT_UI_SCALE,
+    normalizeUiScale
+  } from '$lib/stores/document.js';
 
   const dispatch = createEventDispatcher<{ close: void; settingsChanged: void }>();
 
@@ -24,6 +28,7 @@
   let enableTabs: boolean = false;
   let mermaidFitWidth: boolean = false;
   let selectedAccent: string = '#646cff';
+  let selectedUiScale: number = DEFAULT_UI_SCALE;
 
   const accentPresets = [
     '#646cff', '#7c3aed', '#6366f1', '#0ea5e9',
@@ -48,6 +53,7 @@
     enableTabs = localStorage.getItem(TABS_KEY) === 'true';
     mermaidFitWidth = localStorage.getItem(MERMAID_FIT_KEY) === 'true';
     selectedAccent = localStorage.getItem('mdreader_accent_color') || '#646cff';
+    selectedUiScale = normalizeUiScale($uiScale);
   });
 
   async function browseEditor(): Promise<void> {
@@ -74,9 +80,26 @@
 
     tabsEnabled.set(enableTabs);
     accentColor.set(selectedAccent);
+    uiScale.set(normalizeUiScale(selectedUiScale));
 
     dispatch('settingsChanged');
     dispatch('close');
+  }
+
+  function scalePercent(scale: number): number {
+    return Math.round(normalizeUiScale(scale) * 100);
+  }
+
+  function scaleStepPercent(): number {
+    return Math.round(UI_SCALE_STEP * 100);
+  }
+
+  function changeUiScale(stepCount: number): void {
+    selectedUiScale = normalizeUiScale(selectedUiScale + stepCount * UI_SCALE_STEP);
+  }
+
+  function resetUiScale(): void {
+    selectedUiScale = DEFAULT_UI_SCALE;
   }
 
   function cancel(): void {
@@ -164,6 +187,48 @@
           <span>Fit diagram to text width</span>
         </label>
         <p class="hint">{mermaidFitWidth ? 'Diagrams scale to fit the text column.' : 'Diagrams keep original size, scroll horizontally if wider.'}</p>
+      </div>
+
+      <div class="section section-divider">
+        <h4>Interface Scale</h4>
+        <div class="scale-control">
+          <button
+            type="button"
+            class="scale-btn"
+            on:click={() => changeUiScale(-1)}
+            disabled={selectedUiScale <= UI_SCALE_MIN}
+            title="Decrease interface scale"
+          >
+            -
+          </button>
+          <input
+            type="range"
+            min={scalePercent(UI_SCALE_MIN)}
+            max={scalePercent(UI_SCALE_MAX)}
+            step={scaleStepPercent()}
+            value={scalePercent(selectedUiScale)}
+            on:input={(e) => selectedUiScale = normalizeUiScale(Number(e.currentTarget.value) / 100)}
+          />
+          <button
+            type="button"
+            class="scale-btn"
+            on:click={() => changeUiScale(1)}
+            disabled={selectedUiScale >= UI_SCALE_MAX}
+            title="Increase interface scale"
+          >
+            +
+          </button>
+          <span class="scale-value">{scalePercent(selectedUiScale)}%</span>
+          <button
+            type="button"
+            class="scale-reset"
+            on:click={resetUiScale}
+            disabled={selectedUiScale === DEFAULT_UI_SCALE}
+          >
+            Reset
+          </button>
+        </div>
+        <p class="hint">Use Ctrl/Cmd + +, -, 0, or Ctrl/Cmd + mouse wheel to adjust quickly.</p>
       </div>
 
       <div class="section section-divider">
@@ -406,6 +471,73 @@
     accent-color: var(--accent);
     width: 16px;
     height: 16px;
+  }
+
+  .scale-control {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .scale-control input[type="range"] {
+    min-width: 0;
+    accent-color: var(--accent);
+  }
+
+  .scale-btn,
+  .scale-reset {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #f0f0f0;
+    color: #333;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+
+  .scale-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+  }
+
+  .scale-reset {
+    padding: 5px 10px;
+  }
+
+  .scale-btn:hover:not(:disabled),
+  .scale-reset:hover:not(:disabled) {
+    background: #e0e0e0;
+  }
+
+  .scale-btn:disabled,
+  .scale-reset:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  :global(.dark) .scale-btn,
+  :global(.dark) .scale-reset {
+    background: #3a3a3a;
+    border-color: #555;
+    color: #e0e0e0;
+  }
+
+  :global(.dark) .scale-btn:hover:not(:disabled),
+  :global(.dark) .scale-reset:hover:not(:disabled) {
+    background: #4a4a4a;
+  }
+
+  .scale-value {
+    min-width: 42px;
+    text-align: right;
+    color: #666;
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  :global(.dark) .scale-value {
+    color: #aaa;
   }
 
   .modal-footer {
