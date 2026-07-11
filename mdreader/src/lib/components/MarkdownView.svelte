@@ -4,6 +4,8 @@
   import { renderMathInDOM } from '$lib/renderer/katex.js';
   import { processMermaidBlocks } from '$lib/renderer/mermaid.js';
   import { processEmbeds } from '$lib/renderer/embed.js';
+  import { processLocalImageSources } from '$lib/renderer/assets.js';
+  import { sanitizeMarkdownHtml } from '$lib/renderer/sanitize.js';
   import DOMPurify from 'dompurify';
 
   export let content: string = '';
@@ -19,14 +21,6 @@
   let mermaidProcessed: boolean = false;
   let lastAppliedHtml: string = '';
   let renderGeneration: number = 0;
-
-  // Configure DOMPurify to allow our custom elements and attributes
-  const purifyConfig = {
-    ADD_TAGS: ['span', 'div', 'sup', 'ol', 'li', 'hr', 'svg', 'path', 'g', 'rect', 'text', 'line', 'circle', 'polygon', 'polyline', 'marker', 'defs', 'clipPath', 'foreignObject', 'tspan'],
-    ADD_ATTR: ['class', 'data-embed-path', 'data-footnote-id', 'data-original-width', 'id', 'style', 'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'transform', 'x', 'y', 'width', 'height', 'rx', 'ry', 'cx', 'cy', 'r', 'points', 'marker-end', 'marker-start', 'text-anchor', 'dominant-baseline', 'font-size', 'font-family', 'clip-path', 'dx', 'dy'],
-    ALLOW_DATA_ATTR: false,
-    ALLOW_UNKNOWN_PROTOCOLS: false
-  };
 
   let frontmatterHtml: string = '';
 
@@ -45,7 +39,7 @@
     }
 
     const rawHtml = renderMarkdown(parsedContent);
-    renderedHtml = frontmatterHtml + DOMPurify.sanitize(rawHtml, purifyConfig);
+    renderedHtml = frontmatterHtml + sanitizeMarkdownHtml(rawHtml);
     mermaidProcessed = false;
     renderGeneration++;
   }
@@ -57,6 +51,7 @@
       lastAppliedHtml = renderedHtml;
       const gen = renderGeneration;
       container.innerHTML = renderedHtml;
+      processLocalImageSources(container, filePath, vaultRoot);
 
       // Process math using DOM-based approach (safe against HTML attribute corruption)
       renderMathInDOM(container);
@@ -93,7 +88,7 @@
 
       // Process embeds (skip if content changed during mermaid processing)
       if (gen === renderGeneration && container) {
-        await processEmbeds(container, filePath);
+        await processEmbeds(container, filePath, vaultRoot);
       }
     }
   });
@@ -103,15 +98,6 @@
     const parts: string[] = filePath.replace(/\\/g, '/').split('/');
     parts.pop();
     return parts.join('/');
-  }
-
-  function resolveImagePath(src: string): string {
-    if (!src) return '';
-    if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('asset://')) {
-      return src;
-    }
-    const base: string = getBasePath();
-    return `asset://localhost/${base}/${src}`;
   }
 
   function resolveWikiLink(href: string): string {

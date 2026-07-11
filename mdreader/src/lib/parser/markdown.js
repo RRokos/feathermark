@@ -48,6 +48,26 @@ const TAG_REGEX = /(?:^|\s)#([\w\-\/]+)/g;
 // Embed regex: ![[file]] or !![[note.md]]
 const EMBED_REGEX = /!\[\[([^\]]+)\]\]/g;
 
+const RAW_TAG_SKIP_REGEX = /<\s*(svg|style)(?=[\s>])/i;
+
+/**
+ * @param {string} line
+ * @returns {string|null}
+ */
+function getRawTagToSkip(line) {
+  const match = line.match(RAW_TAG_SKIP_REGEX);
+  return match ? match[1].toLowerCase() : null;
+}
+
+/**
+ * @param {string} line
+ * @param {string} tag
+ * @returns {boolean}
+ */
+function closesRawTag(line, tag) {
+  return new RegExp(`<\\s*\\/\\s*${tag}\\s*>`, 'i').test(line);
+}
+
 /** Escape HTML special characters to prevent injection via filenames
  * @param {string} str
  * @returns {string}
@@ -99,6 +119,61 @@ function detectFence(line, fenceState) {
 }
 
 /**
+ * @param {string} embedPath
+ * @returns {{ target: string, meta: string }}
+ */
+function splitEmbedTarget(embedPath) {
+  const pipeIndex = embedPath.indexOf('|');
+  if (pipeIndex < 0) {
+    return { target: embedPath.trim(), meta: '' };
+  }
+  return {
+    target: embedPath.slice(0, pipeIndex).trim(),
+    meta: embedPath.slice(pipeIndex + 1).trim()
+  };
+}
+
+/**
+ * @param {string} target
+ * @returns {string}
+ */
+function stripResourceSuffix(target) {
+  const queryIndex = target.indexOf('?');
+  const hashIndex = target.indexOf('#');
+  const indexes = [queryIndex, hashIndex].filter((index) => index >= 0);
+  const suffixIndex = indexes.length > 0 ? Math.min(...indexes) : -1;
+  return suffixIndex < 0 ? target : target.slice(0, suffixIndex);
+}
+
+/**
+ * @param {string} target
+ * @returns {boolean}
+ */
+function isImageEmbedTarget(target) {
+  return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(stripResourceSuffix(target));
+}
+
+/**
+ * @param {string} meta
+ * @returns {{ alt: string, width: string, height: string }}
+ */
+function parseImageEmbedMeta(meta) {
+  const trimmed = meta.trim();
+  if (!trimmed) return { alt: '', width: '', height: '' };
+
+  const size = trimmed.match(/^(\d{1,4})(?:\s*x\s*(\d{1,4}))?$/i);
+  if (size) {
+    return {
+      alt: '',
+      width: size[1],
+      height: size[2] || ''
+    };
+  }
+
+  return { alt: trimmed, width: '', height: '' };
+}
+
+/**
  * @param {string} content
  * @param {Set<string>} embedChain
  * @returns {string}
@@ -115,25 +190,33 @@ export function preprocessEmbeds(content, embedChain) {
     if (fence) { fenceState = state; result.push(line); continue; }
     if (fenceState.open) { result.push(line); continue; }
     result.push(line.replace(EMBED_REGEX, (match, embedPath) => {
+      const { target, meta } = splitEmbedTarget(embedPath);
+      if (!target) return match;
+
+      // Image embeds are leaf resources, so repeated images should render
+      // normally instead of being treated as circular Markdown embeds.
+      if (isImageEmbedTarget(target)) {
+        const safePath = escapeHtml(target);
+        const imageMeta = parseImageEmbedMeta(meta);
+        const alt = escapeHtml(imageMeta.alt || target);
+        const width = imageMeta.width ? ` width="${imageMeta.width}"` : '';
+        const height = imageMeta.height ? ` height="${imageMeta.height}"` : '';
+        return `<div class="embed-image"><img src="${safePath}" alt="${alt}"${width}${height} /></div>`;
+      }
+
       // Normalize path for cycle detection
-      const normalizedPath = embedPath.replace(/\\/g, '/');
+      const normalizedPath = target.replace(/\\/g, '/');
       if (embedChain.has(normalizedPath)) {
-        return `<div class="embed-error">Circular embed detected: ${escapeHtml(embedPath)}</div>`;
+        return `<div class="embed-error">Circular embed detected: ${escapeHtml(target)}</div>`;
       }
 
       // Mark this file as being embedded
       embedChain.add(normalizedPath);
 
-      const safePath = escapeHtml(embedPath);
+      const safePath = escapeHtml(target);
 
-      // Determine if it's an image or markdown
-      if (embedPath.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
-        // Image embed
-        return `<div class="embed-image"><img src="${safePath}" alt="${safePath}" /></div>`;
-      } else {
-        // Markdown embed placeholder - will be resolved later
-        return `<div class="embed-markdown" data-embed-path="${safePath}"><span class="embed-loading">Loading ${safePath}...</span></div>`;
-      }
+      // Markdown embed placeholder - will be resolved later
+      return `<div class="embed-markdown" data-embed-path="${safePath}"><span class="embed-loading">Loading ${safePath}...</span></div>`;
     }));
   }
 
@@ -148,6 +231,7 @@ export function preprocessTags(content) {
   const lines = content.replace(/\r/g, '').split('\n');
   const result = [];
   let fenceState = { open: false, char: '', count: 0 };
+  let rawTagToSkip = null;
 
   for (const line of lines) {
     // Track fenced code blocks (backtick and tilde)
@@ -155,6 +239,23 @@ export function preprocessTags(content) {
     if (fence) { fenceState = state; result.push(line); continue; }
     // Skip code blocks
     if (fenceState.open) { result.push(line); continue; }
+
+    if (rawTagToSkip) {
+      result.push(line);
+      if (closesRawTag(line, rawTagToSkip)) {
+        rawTagToSkip = null;
+      }
+      continue;
+    }
+
+    const rawTag = getRawTagToSkip(line);
+    if (rawTag) {
+      result.push(line);
+      if (!closesRawTag(line, rawTag) && !/\/\s*>/.test(line)) {
+        rawTagToSkip = rawTag;
+      }
+      continue;
+    }
     // Skip tags inside inline code (backtick-delimited segments)
     // Split line by inline code spans, only process non-code parts
     const parts = line.split(/(`[^`]+`)/);

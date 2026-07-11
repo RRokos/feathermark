@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { open } from '@tauri-apps/plugin-dialog';
   import Sidebar from '$lib/components/Sidebar.svelte';
@@ -9,7 +10,8 @@
   import SettingsModal from '$lib/components/SettingsModal.svelte';
   import TabBar from '$lib/components/TabBar.svelte';
   import {
-    documentState, theme, recentFiles, recentVaults,
+    documentState, theme, recentFiles, recentVaults, uiScale,
+    UI_SCALE_STEP, normalizeUiScale,
     setDocument, setLoading, setError, clearDocument, addToRecentFiles,
     removeRecentFile,
     addToRecentVaults, clearAllRecents
@@ -27,6 +29,8 @@
   let showSettings: boolean = false;
   let renderKey: number = 0;
   let recentTab: 'vaults' | 'files' = 'vaults';
+  let appliedUiScale: number | null = null;
+  let lastZoomWheelAt: number = 0;
 
   function handleSettingsChanged(): void {
     renderKey++;
@@ -45,6 +49,9 @@
   $: displayTitle = $tabsEnabled && $activeTab
     ? $activeTab.title
     : ($documentState.title || 'Feathermark');
+  $: if (typeof window !== 'undefined') {
+    applyUiScale($uiScale);
+  }
 
   async function handleOpenInEditor(): Promise<void> {
     const path = $tabsEnabled && $activeTab ? $activeTab.filePath : $documentState.filePath;
@@ -169,6 +176,28 @@
     theme.update((current: string): string => current === 'light' ? 'dark' : 'light');
   }
 
+  function applyUiScale(scale: number): void {
+    const normalized = normalizeUiScale(scale);
+    if (appliedUiScale === normalized) return;
+    appliedUiScale = normalized;
+
+    try {
+      getCurrentWebview().setZoom(normalized).catch((err: unknown) => {
+        console.warn('Failed to apply UI scale:', err);
+      });
+    } catch (err) {
+      console.warn('Failed to apply UI scale:', err);
+    }
+  }
+
+  function setUiScale(nextScale: number): void {
+    uiScale.set(normalizeUiScale(nextScale));
+  }
+
+  function adjustUiScale(stepCount: number): void {
+    setUiScale($uiScale + stepCount * UI_SCALE_STEP);
+  }
+
   function goHome(): void {
     clearDocument();
     if ($tabsEnabled) clearTabs();
@@ -243,6 +272,8 @@
   let findInput: HTMLInputElement;
 
   function handleKeydown(event: KeyboardEvent): void {
+    if (handleZoomKeydown(event)) return;
+
     // Ctrl+Shift+F → focus vault search
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'F') {
       event.preventDefault();
@@ -265,6 +296,35 @@
       // Clear selection highlight
       if (window.getSelection) window.getSelection()?.removeAllRanges();
     }
+  }
+
+  function handleZoomKeydown(event: KeyboardEvent): boolean {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
+
+    const key = event.key.toLowerCase();
+    const code = event.code;
+    const zoomIn = key === '=' || key === '+' || code === 'Equal' || code === 'NumpadAdd';
+    const zoomOut = key === '-' || key === '_' || code === 'Minus' || code === 'NumpadSubtract';
+    const reset = key === '0' || code === 'Digit0' || code === 'Numpad0';
+
+    if (!zoomIn && !zoomOut && !reset) return false;
+
+    event.preventDefault();
+    if (zoomIn) adjustUiScale(1);
+    if (zoomOut) adjustUiScale(-1);
+    if (reset) setUiScale(1);
+    return true;
+  }
+
+  function handleWheel(event: WheelEvent): void {
+    if (!(event.ctrlKey || event.metaKey) || event.deltaY === 0) return;
+
+    event.preventDefault();
+    const now = Date.now();
+    if (now - lastZoomWheelAt < 80) return;
+
+    lastZoomWheelAt = now;
+    adjustUiScale(event.deltaY < 0 ? 1 : -1);
   }
 
   function findNext(): void {
@@ -366,7 +426,7 @@
   });
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window on:keydown={handleKeydown} on:wheel|nonpassive={handleWheel} />
 
 <main class="app" class:dark={$theme === 'dark'}>
   <header class="header">
@@ -625,11 +685,16 @@
   .header-btn {
     background: none;
     border: none;
+    color: inherit;
     font-size: 1.2rem;
     cursor: pointer;
     padding: 6px 10px;
     border-radius: 4px;
     transition: background 0.2s;
+  }
+
+  :global(.dark) .header-btn {
+    color: #f5f5f5;
   }
 
   .header-btn:hover {
