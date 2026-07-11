@@ -293,3 +293,54 @@ describe('regression', () => {
     expect(result.body).toBe('Body');
   });
 });
+
+// ── PR #2: SVG/style raw tag skip ────────────────────────────────────
+
+describe('SVG/style tag skip in preprocessTags', () => {
+  it('tags inside <svg> block are not processed', () => {
+    const md = '<svg>\n<circle fill="#ff0000" />\n</svg>\n#real-tag';
+    const html = preprocessTags(md);
+    expect(html).not.toContain('#ff0000</span>'); // hex color NOT a tag
+    expect(html).toContain('class="tag">#real-tag</span>'); // real tag after svg
+  });
+
+  it('tags inside <style> block are not processed', () => {
+    const md = '<style>\n.btn { color: #2563eb; }\n</style>\n#real-tag';
+    const html = preprocessTags(md);
+    expect(html).not.toContain('#2563eb</span>'); // hex color untouched
+    expect(html).toContain('class="tag">#real-tag</span>');
+  });
+
+  it('self-closing svg is not treated as block', () => {
+    const md = '<svg />\n#real-tag';
+    const html = preprocessTags(md);
+    expect(html).toContain('class="tag">#real-tag</span>');
+  });
+});
+
+// ── PR #2: Embed meta parsing ────────────────────────────────────────
+
+describe('embed meta parsing', () => {
+  it('image embed with size', () => {
+    const html = preprocessEmbeds('![[photo.png|200x100]]', new Set());
+    expect(html).toContain('width="200"');
+    expect(html).toContain('height="100"');
+  });
+
+  it('image embed with alt text', () => {
+    const html = preprocessEmbeds('![[photo.png|My Photo]]', new Set());
+    expect(html).toContain('alt="My Photo"');
+  });
+
+  it('SVG embed treated as image', () => {
+    const html = preprocessEmbeds('![[icon.svg]]', new Set());
+    expect(html).toContain('embed-image');
+    expect(html).toContain('img src');
+  });
+
+  it('markdown embed is placeholder', () => {
+    const html = preprocessEmbeds('![[note]]', new Set());
+    expect(html).toContain('embed-markdown');
+    expect(html).toContain('data-embed-path');
+  });
+});
