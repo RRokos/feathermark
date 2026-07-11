@@ -11,5 +11,6 @@
     "strict": false,
     "moduleResolution": "bundler",
     "types": ["node"]
-  }
+  },
+  "exclude": ["tests/**"]
 }

@@ -58,11 +58,12 @@ $$\int_0^1 f(x) dx$$ should not render either
 ```
 
 ### 2f. Code block with mermaid syntax
-```markdown
+`````markdown
 ```mermaid
 flowchart TD
   A --> B
-`` ```
+```
+`````
 
 ## 3. Wikilinks
 

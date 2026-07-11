@@ -60,6 +60,44 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;');
 }
 
+// Fence regex: optional leading whitespace (0-3 spaces for valid fences), 3+ backticks or tildes, rest of line
+const FENCE_RE = /^(\s*)([`]{3,}|[~]{3,})(.*)$/;
+
+/**
+ * Detect fenced code block opening/closing per CommonMark/GFM spec.
+ * Opening: 0-3 spaces indent, 3+ backticks or tildes with optional info string.
+ * Closing: 0-3 spaces indent, 3+ of the SAME character as the opener, no info string.
+ * @param {string} line
+ * @param {{open: boolean, char: string, count: number}} fenceState
+ * @returns {{fence: boolean, state: {open: boolean, char: string, count: number}}}
+ */
+function detectFence(line, fenceState) {
+  const m = line.match(FENCE_RE);
+  if (!m) return { fence: false, state: fenceState };
+
+  const indent = m[1].length;
+  const fenceChar = m[2][0];
+  const count = m[2].length;
+  const info = m[3].trim();
+
+  if (!fenceState.open) {
+    // Outside code block → opening fence (max 3 spaces indent allowed)
+    if (indent <= 3) {
+      return { fence: true, state: { open: true, char: fenceChar, count } };
+    }
+    // 4+ spaces indent → indented code, not a fence
+    return { fence: false, state: fenceState };
+  }
+
+  // Inside code block → closing fence (max 3 spaces indent, same char, enough length, no info)
+  if (indent <= 3 && fenceChar === fenceState.char && count >= fenceState.count && info === '') {
+    return { fence: true, state: { open: false, char: '', count: 0 } };
+  }
+
+  // Doesn't match → treat as content
+  return { fence: false, state: fenceState };
+}
+
 /**
  * @param {string} content
  * @param {Set<string>} embedChain
@@ -68,20 +106,14 @@ function escapeHtml(str) {
 export function preprocessEmbeds(content, embedChain) {
   if (!embedChain) embedChain = new Set();
 
-  const lines = content.split('\n');
+  const lines = content.replace(/\r/g, '').split('\n');
   const result = [];
-  let inCodeBlock = false;
+  let fenceState = { open: false, char: '', count: 0 };
 
   for (const line of lines) {
-    if (line.trimStart().startsWith('```')) {
-      inCodeBlock = !inCodeBlock;
-      result.push(line);
-      continue;
-    }
-    if (inCodeBlock) {
-      result.push(line);
-      continue;
-    }
+    const { fence, state } = detectFence(line, fenceState);
+    if (fence) { fenceState = state; result.push(line); continue; }
+    if (fenceState.open) { result.push(line); continue; }
     result.push(line.replace(EMBED_REGEX, (match, embedPath) => {
       // Normalize path for cycle detection
       const normalizedPath = embedPath.replace(/\\/g, '/');
@@ -113,22 +145,16 @@ export function preprocessEmbeds(content, embedChain) {
  * @returns {string}
  */
 export function preprocessTags(content) {
-  const lines = content.split('\n');
+  const lines = content.replace(/\r/g, '').split('\n');
   const result = [];
-  let inCodeBlock = false;
+  let fenceState = { open: false, char: '', count: 0 };
 
   for (const line of lines) {
-    // Track fenced code blocks
-    if (line.trimStart().startsWith('```')) {
-      inCodeBlock = !inCodeBlock;
-      result.push(line);
-      continue;
-    }
+    // Track fenced code blocks (backtick and tilde)
+    const { fence, state } = detectFence(line, fenceState);
+    if (fence) { fenceState = state; result.push(line); continue; }
     // Skip code blocks
-    if (inCodeBlock) {
-      result.push(line);
-      continue;
-    }
+    if (fenceState.open) { result.push(line); continue; }
     // Skip tags inside inline code (backtick-delimited segments)
     // Split line by inline code spans, only process non-code parts
     const parts = line.split(/(`[^`]+`)/);
@@ -186,16 +212,16 @@ const CALLOUT_ICONS = {
  * @returns {string}
  */
 export function preprocessCallouts(content) {
-  const lines = content.split('\n');
+  const lines = content.replace(/\r/g, '').split('\n');
   const result = [];
   let inCallout = false;
   let calloutType = '';
   let calloutDepth = 0;
-  let inCodeBlock = false;
+  let fenceState = { open: false, char: '', count: 0 };
   // Track code blocks INSIDE callouts separately — the '> ' prefix
-  // breaks `trimStart().startsWith('```')` detection, so we track
+  // breaks fence detection on the raw line, so we track
   // fences on the stripped line within callout context.
-  let inCalloutCodeBlock = false;
+  let calloutFenceState = { open: false, char: '', count: 0 };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -203,13 +229,10 @@ export function preprocessCallouts(content) {
     // ── Outside callout ─────────────────────────────────────────────
     if (!inCallout) {
       // Track fenced code blocks — don't process callout syntax inside them
-      if (line.trimStart().startsWith('```')) {
-        inCodeBlock = !inCodeBlock;
-        result.push(line);
-        continue;
-      }
+      const { fence, state } = detectFence(line, fenceState);
+      if (fence) { fenceState = state; result.push(line); continue; }
 
-      if (inCodeBlock) {
+      if (fenceState.open) {
         // Inside a code block — pass through unchanged
         result.push(line);
         continue;
@@ -222,7 +245,7 @@ export function preprocessCallouts(content) {
         calloutType = calloutMatch[1].toLowerCase();
         const title = calloutMatch[3] || calloutType;
         calloutDepth = 1;
-        inCalloutCodeBlock = false;
+        calloutFenceState = { open: false, char: '', count: 0 };
         const icon = CALLOUT_ICONS[calloutType] || 'ℹ️';
         result.push(`<div class="callout callout-${calloutType}">`);
         result.push(`<div class="callout-title"><span class="callout-icon">${icon}</span> ${title}</div>`);
@@ -262,15 +285,14 @@ export function preprocessCallouts(content) {
                     : line.startsWith('>') ? line.substring(1)
                     : null;
 
-    // Check for code fence on the stripped line (handles ``` inside callouts)
-    if (stripped !== null && stripped.trimStart().startsWith('```')) {
-      inCalloutCodeBlock = !inCalloutCodeBlock;
-      result.push(stripped);
-      continue;
+    // Check for code fence on the stripped line (handles ``` and ~~~ inside callouts)
+    if (stripped !== null) {
+      const { fence, state } = detectFence(stripped, calloutFenceState);
+      if (fence) { calloutFenceState = state; result.push(stripped); continue; }
     }
 
     // Inside a code block within the callout — pass stripped line through
-    if (inCalloutCodeBlock) {
+    if (calloutFenceState.open) {
       if (stripped !== null) {
         result.push(stripped);
       } else {
@@ -297,14 +319,14 @@ export function preprocessCallouts(content) {
       for (let d = 0; d < calloutDepth; d++) result.push('\n</div></div>');
       inCallout = false;
       calloutDepth = 0;
-      inCalloutCodeBlock = false;
+      calloutFenceState = { open: false, char: '', count: 0 };
       result.push(line);
     } else {
       // Non-empty line without '> ' prefix ends the callout
       for (let d = 0; d < calloutDepth; d++) result.push('\n</div></div>');
       inCallout = false;
       calloutDepth = 0;
-      inCalloutCodeBlock = false;
+      calloutFenceState = { open: false, char: '', count: 0 };
       result.push(line);
     }
   }
@@ -321,20 +343,14 @@ export function preprocessCallouts(content) {
  * @returns {string}
  */
 export function preprocessWikilinks(content) {
-  const lines = content.split('\n');
+  const lines = content.replace(/\r/g, '').split('\n');
   const result = [];
-  let inCodeBlock = false;
+  let fenceState = { open: false, char: '', count: 0 };
 
   for (const line of lines) {
-    if (line.trimStart().startsWith('```')) {
-      inCodeBlock = !inCodeBlock;
-      result.push(line);
-      continue;
-    }
-    if (inCodeBlock) {
-      result.push(line);
-      continue;
-    }
+    const { fence, state } = detectFence(line, fenceState);
+    if (fence) { fenceState = state; result.push(line); continue; }
+    if (fenceState.open) { result.push(line); continue; }
     // Split by inline code spans, only process non-code parts (like preprocessTags)
     const parts = line.split(/(`[^`]+`)/);
     const processed = parts.map((part, idx) => {
@@ -364,18 +380,19 @@ export function preprocessWikilinks(content) {
 export function preprocessFootnotes(content) {
   const footnoteRefs = new Map();
   const footnoteDefs = new Map();
-  const lines = content.split('\n');
+  const lines = content.replace(/\r/g, '').split('\n');
   const result = [];
 
   // First pass: collect all footnote definitions (skip inside code blocks)
   // Supports multi-line definitions (continuation lines indented with 2+ spaces or 1 tab)
   {
-    let inCodeBlock = false;
+    let fenceState = { open: false, char: '', count: 0 };
     let currentId = null;
     let currentText = '';
     for (const line of lines) {
-      if (line.trimStart().startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
-      if (inCodeBlock) continue;
+      const { fence, state } = detectFence(line, fenceState);
+      if (fence) { fenceState = state; continue; }
+      if (fenceState.open) continue;
 
       const defMatch = line.match(/^\[\^([^\]]+)\]:\s*(.*)$/);
       if (defMatch) {
@@ -404,22 +421,15 @@ export function preprocessFootnotes(content) {
   }
 
   // Second pass: process content and collect references
-  let inCodeBlock = false;
+  let fenceState2 = { open: false, char: '', count: 0 };
   let skipContinuation = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
     // Track fenced code blocks
-    if (line.trimStart().startsWith('```')) {
-      inCodeBlock = !inCodeBlock;
-      result.push(line);
-      skipContinuation = false;
-      continue;
-    }
-    if (inCodeBlock) {
-      result.push(line);
-      continue;
-    }
+    const { fence, state } = detectFence(line, fenceState2);
+    if (fence) { fenceState2 = state; result.push(line); skipContinuation = false; continue; }
+    if (fenceState2.open) { result.push(line); continue; }
 
     // Skip footnote definition lines
     if (/^\[\^[^\]]+\]:/.test(line)) {
@@ -480,19 +490,20 @@ export function preprocessFootnotes(content) {
  * @returns {{frontmatter: object|null, body: string}}
  */
 export function parseFrontmatter(content) {
+  const normalized = content.replace(/\r/g, '');
   const frontmatterRegex = /^---\n([\s\S]*?)\n---\n/;
-  const match = content.match(frontmatterRegex);
+  const match = normalized.match(frontmatterRegex);
 
   if (!match) {
     return { frontmatter: null, body: content };
   }
 
   const frontmatterStr = match[1];
-  const body = content.slice(match[0].length);
+  const body = normalized.slice(match[0].length);
 
   /** @type {Record<string, any>} */
   const frontmatter = {};
-  const lines = frontmatterStr.split('\n');
+  const lines = frontmatterStr.replace(/\r/g, '').split('\n');
 
   for (const line of lines) {
     const colonIndex = line.indexOf(':');
