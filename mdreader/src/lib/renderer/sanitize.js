@@ -106,6 +106,23 @@ export const markdownPurifyConfig = {
 };
 
 /**
+ * Config to strip SVG tags when SVG rendering is disabled.
+ * Merged as overrides on top of markdownPurifyConfig.
+ */
+export const svgStrippingConfig = {
+  FORBID_TAGS: [
+    'svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline',
+    'polygon', 'text', 'tspan', 'textPath', 'defs', 'marker', 'clipPath',
+    'mask', 'pattern', 'linearGradient', 'radialGradient', 'stop', 'filter',
+    'feBlend', 'feColorMatrix', 'feComponentTransfer', 'feComposite',
+    'feConvolveMatrix', 'feDiffuseLighting', 'feDisplacementMap',
+    'feDropShadow', 'feFlood', 'feGaussianBlur', 'feImage', 'feMerge',
+    'feMergeNode', 'feMorphology', 'feOffset', 'feSpecularLighting',
+    'feTile', 'feTurbulence', 'style', 'symbol', 'use', 'image', 'title', 'desc'
+  ]
+};
+
+/**
  * @param {string} html
  * @param {Record<string, any>} [overrides]
  * @returns {string}

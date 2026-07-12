@@ -136,6 +136,28 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+// ─── SVG rendering toggle ────────────────────────────────────────────
+
+const SVG_ENABLED_KEY = 'mdreader_svg_enabled';
+
+function loadSvgEnabled() {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      return localStorage.getItem(SVG_ENABLED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+export const svgEnabled = writable(loadSvgEnabled());
+svgEnabled.subscribe((val) => {
+  if (typeof localStorage !== 'undefined') {
+    try { localStorage.setItem(SVG_ENABLED_KEY, String(val)); } catch {}
+  }
+});
+
 // ─── Document state ─────────────────────────────────────────────────
 
 export const documentState = writable(initialDocState);

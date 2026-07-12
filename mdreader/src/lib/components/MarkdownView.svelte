@@ -5,7 +5,8 @@
   import { processMermaidBlocks } from '$lib/renderer/mermaid.js';
   import { processEmbeds } from '$lib/renderer/embed.js';
   import { processLocalImageSources } from '$lib/renderer/assets.js';
-  import { sanitizeMarkdownHtml } from '$lib/renderer/sanitize.js';
+  import { sanitizeMarkdownHtml, svgStrippingConfig } from '$lib/renderer/sanitize.js';
+  import { svgEnabled } from '$lib/stores/document.js';
   import DOMPurify from 'dompurify';
 
   export let content: string = '';
@@ -39,7 +40,8 @@
     }
 
     const rawHtml = renderMarkdown(parsedContent);
-    renderedHtml = frontmatterHtml + sanitizeMarkdownHtml(rawHtml);
+    const purifyOverrides = $svgEnabled ? {} : svgStrippingConfig;
+    renderedHtml = frontmatterHtml + sanitizeMarkdownHtml(rawHtml, purifyOverrides);
     mermaidProcessed = false;
     renderGeneration++;
   }

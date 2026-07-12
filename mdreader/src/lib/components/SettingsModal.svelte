@@ -3,7 +3,7 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import { tabsEnabled } from '$lib/stores/tabs.js';
   import {
-    accentColor, uiScale,
+    accentColor, uiScale, svgEnabled,
     UI_SCALE_MIN, UI_SCALE_MAX, UI_SCALE_STEP, DEFAULT_UI_SCALE,
     normalizeUiScale
   } from '$lib/stores/document.js';
@@ -13,13 +13,19 @@
   const EDITOR_KEY = 'mdreader_editor';
   const TABS_KEY = 'mdreader_tabs_enabled';
   const MERMAID_FIT_KEY = 'mdreader_mermaid_fit';
+  const SVG_ENABLED_KEY = 'mdreader_svg_enabled';
+
+  const SETTINGS_KEYS = [
+    EDITOR_KEY, TABS_KEY, MERMAID_FIT_KEY, SVG_ENABLED_KEY,
+    'mdreader_accent_color', 'mdreader_ui_scale', 'mdreader_theme'
+  ];
 
   type EditorPreset = { label: string; command: string; description: string };
 
   const presets: EditorPreset[] = [
+    { label: 'Notepad', command: 'notepad', description: 'Windows Notepad' },
     { label: 'VS Code', command: 'code', description: 'Visual Studio Code' },
     { label: 'Notepad++', command: 'notepad++', description: 'Notepad++' },
-    { label: 'Notepad', command: 'notepad', description: 'Windows Notepad' },
   ];
 
   let selectedPreset: string = '';
@@ -27,6 +33,7 @@
   let useCustom: boolean = false;
   let enableTabs: boolean = false;
   let mermaidFitWidth: boolean = false;
+  let enableSvg: boolean = false;
   let selectedAccent: string = '#646cff';
   let selectedUiScale: number = DEFAULT_UI_SCALE;
 
@@ -46,12 +53,14 @@
       customPath = saved;
       useCustom = true;
     } else {
+      // Default: first preset (Notepad)
       selectedPreset = presets[0]?.command || '';
       useCustom = false;
     }
 
     enableTabs = localStorage.getItem(TABS_KEY) === 'true';
     mermaidFitWidth = localStorage.getItem(MERMAID_FIT_KEY) === 'true';
+    enableSvg = localStorage.getItem(SVG_ENABLED_KEY) === 'true';
     selectedAccent = localStorage.getItem('mdreader_accent_color') || '#646cff';
     selectedUiScale = normalizeUiScale($uiScale);
   });
@@ -76,14 +85,40 @@
       }
       localStorage.setItem(TABS_KEY, String(enableTabs));
       localStorage.setItem(MERMAID_FIT_KEY, String(mermaidFitWidth));
+      localStorage.setItem(SVG_ENABLED_KEY, String(enableSvg));
     } catch {}
 
     tabsEnabled.set(enableTabs);
     accentColor.set(selectedAccent);
     uiScale.set(normalizeUiScale(selectedUiScale));
+    svgEnabled.set(enableSvg);
 
     dispatch('settingsChanged');
     dispatch('close');
+  }
+
+  function resetDefaults(): void {
+    try {
+      for (const key of SETTINGS_KEYS) {
+        localStorage.removeItem(key);
+      }
+    } catch {}
+
+    // Reset local state
+    selectedPreset = presets[0]?.command || '';
+    customPath = '';
+    useCustom = false;
+    enableTabs = false;
+    mermaidFitWidth = false;
+    enableSvg = false;
+    selectedAccent = '#646cff';
+    selectedUiScale = DEFAULT_UI_SCALE;
+
+    // Reset stores
+    tabsEnabled.set(false);
+    accentColor.set('#646cff');
+    uiScale.set(DEFAULT_UI_SCALE);
+    svgEnabled.set(false);
   }
 
   function scalePercent(scale: number): number {
@@ -190,6 +225,15 @@
       </div>
 
       <div class="section section-divider">
+        <h4>SVG Rendering</h4>
+        <label class="toggle-item">
+          <input type="checkbox" bind:checked={enableSvg} />
+          <span>Enable inline SVG rendering</span>
+        </label>
+        <p class="hint">{enableSvg ? 'SVG images and inline SVG in Markdown are rendered.' : 'SVG content is sanitized (tags removed). Recommended for untrusted files.'}</p>
+      </div>
+
+      <div class="section section-divider">
         <h4>Interface Scale</h4>
         <div class="scale-control">
           <button
@@ -264,8 +308,11 @@
     </div>
 
     <div class="modal-footer">
-      <button class="btn btn-secondary" on:click={cancel}>Cancel</button>
-      <button class="btn btn-primary" on:click={save}>Save</button>
+      <button class="btn btn-danger" on:click={resetDefaults}>Reset Defaults</button>
+      <div class="footer-right">
+        <button class="btn btn-secondary" on:click={cancel}>Cancel</button>
+        <button class="btn btn-primary" on:click={save}>Save</button>
+      </div>
     </div>
   </div>
 </div>
@@ -337,6 +384,9 @@
 
   .modal-body {
     padding: 20px;
+    max-height: calc(100vh - 180px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .section h4 {
@@ -542,10 +592,15 @@
 
   .modal-footer {
     display: flex;
-    justify-content: flex-end;
-    gap: 8px;
+    justify-content: space-between;
+    align-items: center;
     padding: 12px 20px;
     border-top: 1px solid #e0e0e0;
+  }
+
+  .footer-right {
+    display: flex;
+    gap: 8px;
   }
 
   :global(.dark) .modal-footer {
@@ -656,5 +711,26 @@
 
   .btn-primary:hover {
     background: var(--accent-hover);
+  }
+
+  .btn-danger {
+    background: none;
+    color: #cc0000;
+    border: 1px solid #cc0000;
+  }
+
+  .btn-danger:hover {
+    background: #cc0000;
+    color: #fff;
+  }
+
+  :global(.dark) .btn-danger {
+    color: #ff6666;
+    border-color: #ff6666;
+  }
+
+  :global(.dark) .btn-danger:hover {
+    background: #ff6666;
+    color: #1e1e1e;
   }
 </style>

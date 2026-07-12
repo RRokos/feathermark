@@ -2,7 +2,9 @@ import { openFile } from '$lib/services/file.js';
 import { renderMathInDOM } from '$lib/renderer/katex.js';
 import { processMermaidBlocks } from '$lib/renderer/mermaid.js';
 import { processLocalImageSources } from '$lib/renderer/assets.js';
-import { sanitizeMarkdownHtml } from '$lib/renderer/sanitize.js';
+import { sanitizeMarkdownHtml, svgStrippingConfig } from '$lib/renderer/sanitize.js';
+import { get } from 'svelte/store';
+import { svgEnabled } from '$lib/stores/document.js';
 
 /** Escape HTML special characters
  * @param {string} str
@@ -54,9 +56,11 @@ export async function processEmbeds(container, currentFilePath, vaultRoot = '', 
       // Render the embedded content (parseFrontmatter handles frontmatter removal)
       const { renderMarkdown, parseFrontmatter } = await import('$lib/parser/markdown.js');
       const parsed = parseFrontmatter(result.content);
-      const html = sanitizeMarkdownHtml(renderMarkdown(parsed.body), {
-        ALLOW_DATA_ATTR: true
-      });
+      const purifyOverrides = {
+        ALLOW_DATA_ATTR: true,
+        ...(get(svgEnabled) ? {} : svgStrippingConfig)
+      };
+      const html = sanitizeMarkdownHtml(renderMarkdown(parsed.body), purifyOverrides);
 
       embedEl.innerHTML = `<div class="embed-content">${html}</div>`;
       processLocalImageSources(/** @type {HTMLElement} */ (embedEl), fullPath, vaultRoot);
