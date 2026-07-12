@@ -248,20 +248,27 @@ export function preprocessTags(content) {
       continue;
     }
 
-    const rawTag = getRawTagToSkip(line);
-    if (rawTag) {
-      result.push(line);
-      if (!closesRawTag(line, rawTag) && !/\/\s*>/.test(line)) {
-        rawTagToSkip = rawTag;
-      }
-      continue;
-    }
     // Skip tags inside inline code (backtick-delimited segments)
     // Split line by inline code spans, only process non-code parts
+    // Also detect <svg>/<style> blocks per-part to avoid false positives in inline code
     const parts = line.split(/(`[^`]+`)/);
+    let partRawTag = null;
     const processed = parts.map((part, idx) => {
       // Odd indices are inline code spans — pass through unchanged
       if (idx % 2 === 1) return part;
+
+      if (partRawTag) {
+        if (closesRawTag(part, partRawTag)) partRawTag = null;
+        return part;
+      }
+
+      const rawTag = getRawTagToSkip(part);
+      if (rawTag) {
+        if (!closesRawTag(part, rawTag) && !/\/\s*>/.test(part)) {
+          partRawTag = rawTag;
+        }
+        return part;
+      }
       return part.replace(TAG_REGEX, (match, tag) => {
         // Skip common programming tokens like #include, #define, #ifdef, etc.
         if (/^(include|define|ifdef|ifndef|endif|pragma|undef|if|else|elif|error|warning|line)$/i.test(tag)) {
@@ -271,6 +278,8 @@ export function preprocessTags(content) {
       });
     });
     result.push(processed.join(''));
+    // Propagate per-part raw tag state to line-level for cross-line tracking
+    if (partRawTag) rawTagToSkip = partRawTag;
   }
 
   return result.join('\n');

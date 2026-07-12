@@ -316,6 +316,18 @@ describe('SVG/style tag skip in preprocessTags', () => {
     const html = preprocessTags(md);
     expect(html).toContain('class="tag">#real-tag</span>');
   });
+
+  it('<svg> inside inline code does NOT trigger raw tag skip', () => {
+    const md = '`<svg>` #tag should render';
+    const html = preprocessTags(md);
+    expect(html).toContain('class="tag">#tag</span>');
+  });
+
+  it('<style> inside inline code does NOT trigger raw tag skip', () => {
+    const md = '`<style>` #tag should render';
+    const html = preprocessTags(md);
+    expect(html).toContain('class="tag">#tag</span>');
+  });
 });
 
 // ── PR #2: Embed meta parsing ────────────────────────────────────────

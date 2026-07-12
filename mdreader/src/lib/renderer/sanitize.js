@@ -65,7 +65,7 @@ export const markdownPurifyConfig = {
     'feConvolveMatrix', 'feDiffuseLighting', 'feDisplacementMap',
     'feDropShadow', 'feFlood', 'feGaussianBlur', 'feImage', 'feMerge',
     'feMergeNode', 'feMorphology', 'feOffset', 'feSpecularLighting',
-    'feTile', 'feTurbulence', 'foreignObject', 'style', 'symbol', 'use',
+    'feTile', 'feTurbulence', 'style', 'symbol', 'use',
     'image', 'title', 'desc'
   ],
   ADD_ATTR: [
@@ -80,15 +80,28 @@ export const markdownPurifyConfig = {
     'baseline-shift', 'font-size', 'font-family', 'font-weight', 'font-style',
     'letter-spacing', 'clip-path', 'clip-rule', 'mask', 'filter', 'offset',
     'stop-color', 'stop-opacity', 'gradientUnits', 'gradientTransform',
-    'patternUnits', 'patternContentUnits', 'href', 'xlink:href', 'dx', 'dy',
+    'patternUnits', 'patternContentUnits',
+    'href', 'xlink:href', // needed for <use>/<image> in SVG; CSP blocks remote loads
+    'dx', 'dy',
     'role', 'aria-label', 'aria-hidden'
   ],
   ALLOW_DATA_ATTR: false,
   ALLOW_UNKNOWN_PROTOCOLS: false,
   FORBID_TAGS: ['script', 'iframe', 'object', 'embed'],
   FORBID_ATTR: [
-    'onabort', 'onerror', 'onload', 'onclick', 'onmouseenter',
-    'onmouseleave', 'onmouseover', 'onmouseout', 'onfocus', 'onblur'
+    'onabort', 'onerror', 'onload', 'onclick', 'ondblclick',
+    'onmouseenter', 'onmouseleave', 'onmouseover', 'onmouseout',
+    'onmousedown', 'onmouseup', 'onmousemove',
+    'onfocus', 'onblur', 'onfocusin', 'onfocusout',
+    'onkeydown', 'onkeyup', 'onkeypress',
+    'oninput', 'onchange', 'onsubmit', 'onreset', 'onselect',
+    'onscroll', 'onwheel',
+    'ondrag', 'ondragstart', 'ondragend', 'ondragover', 'ondragenter', 'ondragleave', 'ondrop',
+    'ontouchstart', 'ontouchend', 'ontouchmove', 'ontouchcancel',
+    'onpointerdown', 'onpointerup', 'onpointermove', 'onpointerover', 'onpointerout',
+    'oncontextmenu', 'onshow', 'ontoggle',
+    'onanimationstart', 'onanimationend', 'onanimationiteration',
+    'ontransitionend', 'oncopy', 'oncut', 'onpaste'
   ]
 };
 
