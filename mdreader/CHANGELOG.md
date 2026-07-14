@@ -1,5 +1,61 @@
 # CHANGELOG
 
+## v0.1.6 (2026-07-14)
+
+### ✨ 新功能
+
+- **SVG 渲染支持**：Markdown 图片、HTML `<img>`、Obsidian `![[file.svg]]` 嵌入均可渲染本地 SVG 资源
+- **SVG 安全开关**：设置中可切换 SVG 渲染（默认关闭），关闭时 DOMPurify 剥离全部 SVG 标签
+- **全应用缩放**：Ctrl/Cmd + `+`/`-`/`0`/滚轮 调整界面缩放，设置中 85%–115% 滑块
+- **设置界面增强**：可滚动内容区（兼容低分辨率）、"恢复默认设置" 按钮
+- **默认编辑器改为 Notepad**：开箱即用，无需安装第三方编辑器
+- **Tilde fence 支持**：`~~~sql` 代码块现在被正确识别（preprocessor 和渲染管线同步）
+- **Multi-backtick fence 支持**：````` 包裹含 3 反引号的代码块
+- **vitest 测试体系**：67 个单元测试覆盖 fence 检测、代码块隔离、CRLF、回归、PR 功能
+- **GitHub Actions CI**：push/PR 自动运行 test + type check + build
+- **暗色模式导航按钮修复**：顶部工具栏和 sidebar 的返回/前进按钮在暗色模式下可见
+
+### 🔒 安全加固
+
+- **移除 `foreignObject` 白名单**：SVG `<foreignObject>` 可嵌入任意 HTML 表单做钓鱼，已从 DOMPurify 白名单移除
+- **事件处理器黑名单扩展**：`FORBID_ATTR` 从 9 个扩充至 40+（含 `onkeydown`、`onscroll`、`ontouchstart`、`onpaste` 等）
+- **`<svg>`/`<style>` raw tag 跳过**：preprocessTags 不再将 SVG CSS 中的 `#hex` 颜色值误转为标签
+- **raw tag 跳过 inline code 修复**：`` `<svg>` #tag `` 中 `#tag` 不再被错误跳过
+
+### 🐛 Bug 修复
+
+**代码块检测（核心修复）**
+- 所有 6 个预处理函数的 `startsWith('```')` 替换为 `detectFence()`，遵循 CommonMark/GFM 规范
+- Tilde fence（`~~~`）代码块内容不再被 preprocessors 误处理（wikilinks、tags、embeds、footnotes、callouts）
+- Multi-backtick fence（4+反引号）正确匹配开闭
+- 闭合 fence 必须与开启 fence 同字符且长度 ≥ 开启 fence
+- 4 空格缩进的 ` ``` ` 不再被误认为闭合 fence（indented code 正确保留）
+
+**Windows CRLF 换行符**
+- 所有预处理函数和 `parseFrontmatter` 的 `split('\n')` 统一改为 `content.replace(/\r/g, '').split('\n')`
+- 修复 Windows 文件 `\r\n` 换行导致 fence 检测正则 `(.*)$` 匹配失败（`.` 不匹配 `\r`）
+
+**smoke-test.md**
+- Section 2f 闭合 fence ` `` ``` `` ` 含空格，markdown-it 也不识别 → 改为 5 反引号开/闭
+
+**暗色模式**
+- 顶部工具栏 "返回主页" 按钮可见性修复
+- Sidebar 导航按钮（向上/返回/前进）可见性修复
+
+**嵌入增强**
+- `![[image.png|200x100]]` 支持尺寸元数据
+- `![[image.png|Alt Text]]` 支持 alt 文本
+- SVG 嵌入作为图片处理（`<img>` 而非递归 Markdown 嵌入）
+
+### 📝 已知限制更新
+
+- ~~代码块检测不支持 tilde fence 和多 backtick fence~~ → ✅ 已修复
+- 嵌套 Callout（`> > [!type]`）内层不渲染为 callout div（渲染为 blockquote）
+- Frontmatter 仍只解析单行 key: value
+- Sidebar 搜索无结果高亮
+
+---
+
 ## v0.1.5 (2026-06-03)
 
 ### ✨ 新功能
@@ -74,7 +130,7 @@
 
 ### 待解决
 - Frontmatter 解析简陋（只处理单行 key: value）
-- 代码块检测不支持 tilde fence（~~~）和多 backtick fence
+- 嵌套 Callout（`> > [!type]`）内层不渲染为 callout div
 - Sidebar 搜索无结果高亮
 - localStorage 跨窗口不同步（主题/主题色）
 
@@ -90,17 +146,17 @@
 | v0.1.3 | ✅ | IPC 死锁修复 + XSS 安全 + 稳定性 |
 | v0.1.4 | ✅ | 数学公式 DOMPurify 修复 |
 | v0.1.5 | ✅ | 多窗口重构 + 安全审查加固（14 项安全 + 35 项 Bug 修复） |
+| v0.1.6 | ✅ | SVG 渲染 + fence 检测修复 + vitest/CI + 设置增强 |
 
 ---
 
 ## 下一步计划
 
-### v0.1.6
-1. 测试体系：vitest + 单元测试 + CI
-2. 无障碍性：TabBar ARIA roles + 键盘导航
-3. Frontmatter 增强：YAML 解析器
-4. tilde fence / 多 backtick fence 支持
-5. Mermaid 启发式检测恢复
+### v0.1.7
+1. 无障碍性：TabBar ARIA roles + 键盘导航
+2. Frontmatter 增强：YAML 解析器
+3. 嵌套 Callout 支持
+4. Mermaid 启发式检测恢复
 
 ### v0.2.0
 1. 搜索增强（结果高亮、正则支持）

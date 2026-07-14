@@ -25,13 +25,15 @@ mdreader/
 │   │   ├── App.svelte          # 根组件（欢迎页、路由、文件加载、快捷键）
 │   │   ├── MarkdownView.svelte # 内容渲染（DOMPurify + KaTeX + Mermaid + embed）
 │   │   ├── Sidebar.svelte      # 目录树 + 搜索框 + 右键菜单
-│   │   └── SettingsModal.svelte # 设置界面（编辑器配置）
+│   │   └── SettingsModal.svelte # 设置界面（编辑器 + Tabs + Mermaid + SVG + 缩放 + 主题色 + 恢复默认）
 │   ├── parser/
 │   │   └── markdown.js         # 预处理链 + markdown-it 渲染
 │   ├── renderer/
 │   │   ├── katex.js            # KaTeX 公式（DOM 文本节点遍历，% 自动转义）
 │   │   ├── mermaid.js          # Mermaid 图表（显式标记 + 启发式双通道）
-│   │   └── embed.js            # ![[embed]] 处理（递归 + 循环检测）
+│   │   ├── embed.js            # ![[embed]] 处理（递归 + 循环检测）
+│   │   ├── sanitize.js         # DOMPurify 配置 + SVG 白名单 + svgStrippingConfig
+│   │   └── assets.js           # 本地图片/SVG 资源路径解析（Tauri convertFileSrc）
 │   ├── services/
 │   │   └── file.js             # Tauri IPC 封装（含 openInEditor / openInNewWindow / searchFiles）
 │   └── stores/
@@ -56,6 +58,8 @@ mdreader/
 | v0.1.2 多窗口 + LaTeX 修复 | ✅ 完成 |
 | v0.1.3 稳定性 + 安全加固 | ✅ 完成 |
 | v0.1.4 数学公式渲染修复 | ✅ 完成 |
+| v0.1.5 多窗口重构 + 安全加固 | ✅ 完成 |
+| v0.1.6 SVG + fence 修复 + vitest/CI + 设置增强 | ✅ 完成 |
 
 ## 支持的 Obsidian 语法
 
@@ -80,7 +84,7 @@ mdreader/
 - 文件外部修改提示刷新（notify crate 监听）
 - 最近文件记录（最多 10 条，可一键清除）
 - 用外部编辑器打开当前文件（✏️ 按钮 / 右键菜单）
-- 设置界面（⚙️ 配置编辑器 + Tabs 开关 + Mermaid 缩放开关）
+- 设置界面（⚙️ 配置编辑器 + Tabs 开关 + Mermaid 缩放 + SVG 渲染开关 + 缩放 + 主题色 + 恢复默认）
 - 多标签浏览（可选，设置中开启）
 - Mermaid 图表缩放开关（适应宽度 / 原始大小+滚动）
 - Vault 全局双链解析（同目录优先 → 全局文件名匹配）
@@ -126,17 +130,18 @@ mdreader/
 ```
 原始 .md 内容
   → parseFrontmatter()      剥离 frontmatter
-  → preprocessCallouts()    Callout → HTML div（跟踪代码块状态）
-  → preprocessEmbeds()      ![[embed]] → 占位 div
-  → preprocessWikilinks()   [[link]] → /vault/ 链接
-  → preprocessFootnotes()   [^1] → 上标 + 脚注区
-  → preprocessTags()        #tag → <span class="tag">
+  → preprocessCallouts()    Callout → HTML div（detectFence 跟踪代码块状态）
+  → preprocessEmbeds()      ![[embed]] → 占位 div（detectFence 跳过代码块）
+  → preprocessWikilinks()   [[link]] → /vault/ 链接（detectFence 跳过代码块）
+  → preprocessFootnotes()   [^1] → 上标 + 脚注区（detectFence 跳过代码块）
+  → preprocessTags()        #tag → <span class="tag">（detectFence + rawTagToSkip 跳过 <svg>/<style>）
   → shieldMath()              保护 $...$ / $$...$$ 不被 markdown-it 转义
-  → md.render()             markdown-it + task-lists 插件
+  → md.render()             markdown-it + task-lists 插件（支持 ~~~ 和多反引号 fence）
   → unshieldMath()           还原数学公式
   → escapeMathHtml()        转义数学中的 < > & 防止 DOMPurify 误删
-  → DOMPurify.sanitize()    HTML 消毒（SVG 白名单）
+  → DOMPurify.sanitize()    HTML 消毒（SVG 开：白名单；SVG 关：剥离 SVG 标签）
   → container.innerHTML     挂载到 DOM
+  → processLocalImageSources()  本地图片/SVG 路径解析（asset: 协议）
   → renderMathInDOM()       KaTeX DOM 遍历（跳过 code/pre/svg）
   → processMermaidBlocks()  Mermaid SVG 渲染（DOMPurify SVG 消毒）
   → processEmbeds()         异步加载 embed 内容
@@ -172,8 +177,29 @@ npm run tauri build
 
 ### 输入消毒
 - 所有 Markdown → DOMPurify（`ALLOW_DATA_ATTR: false`，显式白名单属性）
+- SVG 渲染开关：关闭时剥离全部 SVG 标签（`svgStrippingConfig`）
+- `foreignObject` 已从白名单移除（防止嵌入 HTML 表单钓鱼）
+- 事件处理器黑名单：40+ 个 `on*` 属性（含触摸/指针/动画/剪贴板事件）
 - Mermaid SVG → DOMPurify SVG profile
+- `<svg>`/`<style>` raw tag 跳过：preprocessTags 自动跳过 SVG CSS 中的 `#hex` 颜色
+- inline code 保护：`` `<svg>` #tag `` 不会触发 raw tag 跳过
 - 编辑器路径 → 黑名单校验（shell 元字符 + 引号 + 控制字符）
 - `cmd /c start` 路径 → 拒绝引号、shell 元字符
 - `initialization_script` 文件路径 → `serde_json::to_string` 安全编码
 - inline math `escapeMathHtml()` → 转义 `$...$` 中的 `<` `>` `&`，防止 DOMPurify 误删
+
+## 代码块检测（detectFence）
+
+所有预处理函数共用 `detectFence(line, fenceState)` 函数，遵循 CommonMark/GFM 规范：
+
+- 支持 backtick (` ``` `) 和 tilde (` ~~~ `) 两种 fence
+- 开启 fence：0-3 空格缩进 + 3+ 同类字符 + 可选 info string
+- 闭合 fence：0-3 空格缩进 + 同字符 + 长度 ≥ 开启 fence + 无 info string
+- 4 空格缩进的 fence 行视为 indented code，不触发 fence 检测
+
+### 测试
+
+```bash
+cd mdreader && npm test        # vitest run（67 个测试）
+cd mdreader && npm run check   # svelte-check 类型检查
+```
