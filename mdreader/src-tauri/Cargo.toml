@@ -1,6 +1,6 @@
 [package]
 name = "mdreader"
-version = "0.1.5"
+version = "0.1.6"
 description = "A lightweight Markdown reader with Obsidian-compatible syntax support"
 authors = ["RRokos"]
 edition = "2021"
