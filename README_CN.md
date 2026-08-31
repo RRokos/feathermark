@@ -19,7 +19,8 @@
 | 文件 | 说明 |
 |------|------|
 | `Feathermark.exe` | 便携版，直接运行 |
-| `Feathermark_x64-setup.exe` | 安装版，支持双击 .md 文件打开 |
+| `Feathermark_0.1.6_x64-setup.exe` | NSIS 安装版，支持双击 .md 文件打开 |
+| `Feathermark_0.1.6_x64_en-US.msi` | MSI 安装版，适合企业部署 |
 
 ---
 
@@ -62,6 +63,25 @@
 
 ⚙️ → 勾选 **Fit diagram to text width** → Save
 
+### SVG 渲染
+
+本地 SVG 图片在 Markdown、`<img>` 标签、Obsidian `![[file.svg]]` 嵌入中均可渲染。出于安全考虑，**默认关闭**。
+
+⚙️ → 勾选 **Enable SVG rendering** → Save。
+
+关闭时，DOMPurify 会剥离渲染输出中的全部 SVG 标签。Markdown 中内联的 `<svg>` 块会作为代码显示源码。
+
+### 全应用缩放
+
+| 操作 | 快捷键 |
+|------|--------|
+| 放大 | **Ctrl/Cmd + `+`** |
+| 缩小 | **Ctrl/Cmd + `-`** |
+| 重置 100% | **Ctrl/Cmd + `0`** |
+| 鼠标调整 | **Ctrl/Cmd + 滚轮** |
+
+范围 **85% – 115%**，步长 5%。设置按窗口独立保存，也可在 **Settings** 中用滑块调节。
+
 ### 多窗口
 
 - 双击 `.md` 文件会自动在新窗口打开（已有窗口不受影响）
@@ -83,14 +103,15 @@
 |------|------|
 | 数学公式 | `$E=mc^2$` 和 `$$\int_0^1 x dx$$` |
 | Mermaid 图表 | ` ```mermaid` 代码块（仅无语言标识时启发式检测） |
-| Callout | `> [!note]`、`> [!warning]` 等 28 种类型 |
+| Callout | `> [!note]`、`> [!warning]` 等 28 种类型，支持嵌套和自定义标题 |
 | 双链 | `[[页面名]]`、`[[页面\|别名]]`、`[[页面#标题]]`、`[[#当前文档标题]]` |
-| 嵌入 | `![[图片.png]]`、`![[笔记.md]]` |
+| 嵌入 | `![[图片.png]]`、`![[笔记.md]]`、`![[图片.png\|200x100]]`（尺寸）、`![[图片.png\|替代文本]]` |
 | 脚注 | `[^1]` 引用（可点击跳转）+ `[^1]: 定义` |
-| 标签 | `#tag`、`#nested/tag`（行内代码中不处理） |
+| 标签 | `#tag`、`#nested/tag`（行内代码和 SVG/style 块内不处理） |
 | 任务列表 | `- [x] 已完成`、`- [ ] 待完成` |
 | Frontmatter | YAML 元数据，显示在文档顶部（兼容 Windows 换行符） |
 | 代码高亮 | ` ```python` 等带语言标记的代码块 |
+| 代码块 fence | 支持 tilde (`~~~sql`) 和多反引号（5+ 反引号包裹 3 反引号内容） |
 
 ---
 
@@ -100,7 +121,22 @@
 |--------|------|
 | Ctrl+F | 文档内搜索 |
 | Ctrl+Shift+F | 全文搜索（聚焦左侧搜索框） |
+| Ctrl/Cmd + `+` / `-` / `0` | 放大 / 缩小 / 重置缩放 |
+| Ctrl/Cmd + 滚轮 | 鼠标滚轮缩放 |
 | Esc | 关闭搜索条 / 设置窗口 |
+
+### ⚙️ 设置面板
+
+- **External editor** — 默认 Notepad，可换 VS Code、Notepad++ 或任意 `.exe`
+- **Tabs** — 开启后顶部显示浏览器风格标签栏
+- **Mermaid fit** — 图表自适应文字宽度 / 保持原始大小横向滚动
+- **SVG rendering** — 关闭时 DOMPurify 剥离 SVG 标签，默认关闭
+- **UI scale** — 85% – 115%，步长 5%（与 Ctrl/Cmd +/-/0 快捷键同范围）
+- **Accent color** — 12 个预设或自定义取色
+- **Theme** — 亮色 / 暗色
+- **Reset Defaults** — 清空所有 Feathermark 设置（最近文件和 vault 故意保留）
+
+设置面板内容区可滚动，矮视口下也能访问全部选项。
 
 ---
 
@@ -118,6 +154,22 @@ npm run tauri build    # 打包
 
 打包产物在 `src-tauri/target/release/bundle/` 下。
 
+开发模式：
+
+```bash
+npm run tauri dev      # 开发模式（热重载）
+```
+
+运行测试：
+
+```bash
+npm test           # vitest（67 个测试）
+npm run check      # svelte-check（类型检查）
+npm run build      # 前端生产构建
+```
+
+以上三个命令在每次 push 时由 GitHub Actions 自动运行（`.github/workflows/ci.yml`）。
+
 ---
 
 ## 技术栈
@@ -126,7 +178,7 @@ npm run tauri build    # 打包
 |------|------|
 | 桌面框架 | Tauri 2 |
 | 前端 | Svelte (SvelteKit) |
-| Markdown 解析 | markdown-it |
+| Markdown 解析 | markdown-it + markdown-it-task-lists |
 | 公式渲染 | KaTeX |
 | 图表渲染 | Mermaid 11 |
 | 代码高亮 | highlight.js |

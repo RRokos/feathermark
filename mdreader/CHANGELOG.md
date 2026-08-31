@@ -56,6 +56,61 @@
 
 ---
 
+## v0.1.6 (2026-07-14) — English
+
+### ✨ New features
+
+- **SVG rendering support**: Markdown images, HTML `<img>` tags, and Obsidian `![[file.svg]]` embeds all render local SVG resources.
+- **SVG security toggle**: A new setting switch (default OFF) strips every SVG tag from rendered output when SVG rendering is off.
+- **App-wide zoom**: `Ctrl/Cmd + +/-/0` and `Ctrl/Cmd + mouse wheel` scale the UI between 85% and 115%; the same range is exposed as a slider in Settings.
+- **Settings UX**: The modal body is now scrollable (`max-height: calc(100vh - 180px)`), and a **Reset Defaults** button clears every Feathermark setting.
+- **Default editor is Notepad**: Works out of the box without configuring a third-party editor.
+- **Tilde fence support**: `~~~sql` blocks are now recognized by the preprocessors and the render pipeline.
+- **Multi-backtick fence support**: 5+ backticks correctly wrap a 3-backtick inner block.
+- **Vitest test suite**: 67 unit tests covering fence detection, code-block isolation, CRLF handling, regressions, and PR #2 features.
+- **GitHub Actions CI**: Every push and PR runs `npm test`, `npm run check`, and `npm run build`.
+- **Dark-mode navigation fix**: The top "Back to home" arrow and the Sidebar up/back/forward arrows stay visible in dark mode.
+
+### 🔒 Security hardening
+
+- **`<foreignObject>` removed from the DOMPurify whitelist**: `<foreignObject>` could embed arbitrary HTML forms (phishing vector) and is no longer permitted.
+- **Event handler blocklist expanded**: `FORBID_ATTR` grew from 9 handlers to **45**, adding `onpointer*`, `ontouch*`, `onanimation*`, `ontransition*`, and clipboard handlers (`oncopy`, `oncut`, `onpaste`).
+- **`<svg>` / `<style>` raw-tag skip**: `preprocessTags` no longer rewrites hex colors inside SVG CSS as Markdown tags.
+- **Inline-code raw-tag skip fix**: `` `<svg>` #tag `` no longer activates the raw-tag skip path; the inline-code segment is preserved verbatim.
+
+### 🐛 Bug fixes
+
+**Code block detection (core fix)**
+- All six preprocessors replaced their `startsWith(' ``` ')` check with `detectFence()`, which follows the CommonMark/GFM spec.
+- Tilde (`~~~`) blocks are no longer misprocessed by the wikilink / tag / embed / footnote / callout preprocessors.
+- Multi-backtick fences (4+ backticks) match opening and closing correctly.
+- Closing fences must use the same character as the opener and have length ≥ opener.
+- 4-space-indented ` ``` ` is treated as indented code, not as a closing fence.
+
+**Windows CRLF line endings**
+- Every preprocessor and `parseFrontmatter` normalizes `\r` before splitting, so Windows files with CRLF endings render correctly. The regex `(.*)$` failed before because `.` does not match `\r`.
+
+**smoke-test.md**
+- Section 2f had an invalid closing fence (3 backticks wrapped in a 3-backtick outer fence with internal spaces). Replaced with a 5-backtick outer / 3-backtick inner pair per CommonMark.
+
+**Dark mode**
+- Top toolbar "Back to home" button visibility fix.
+- Sidebar navigation buttons (up / back / forward) visibility fix.
+
+**Embed enhancements**
+- `![[image.png|200x100]]` supports width × height metadata.
+- `![[image.png|Alt Text]]` supports an alt-text alternative.
+- SVG embeds are rendered as `<img>` instead of being recursively parsed as Markdown.
+
+### 📝 Known limitations updated
+
+- ~~Code block detection does not support tilde or multi-backtick fences~~ → ✅ fixed
+- Nested Callouts (`> > [!type]`) render as blockquotes, not as inner callout divs.
+- Frontmatter parser is single-line `key: value` only.
+- Sidebar search does not highlight match positions.
+
+---
+
 ## v0.1.5 (2026-06-03)
 
 ### ✨ 新功能
